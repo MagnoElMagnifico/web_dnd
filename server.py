@@ -140,9 +140,8 @@ class HttpResponse:
 
         self.add_body(filepath.read_bytes())
 
-        mimetype = mimetypes.guess_type(filepath)
-        self._headers['content-type'] = mimetype[0]
-        self._headers['content-encoding'] = mimetype[1]
+        mt = mimetypes.guess_type(filepath)
+        self._headers['content-type'] = f'{mt[0] if mt[0] else 'text/plain'}; charset={mt[1] if mt[1] else 'utf-8'}'
 
     def __setitem__(self, key, value):
         assert isinstance(key, str), 'key must be a string'
@@ -205,19 +204,6 @@ class HttpServer:
             <html>
             ''')
 
-        self._internal_error_response = HttpResponse('HTTP/1.1', HTTPStatus.INTERNAL_SERVER_ERROR)
-        self._internal_error_response['content-type'] = 'text/html'
-        self._internal_error_response.add_body('''
-            <html>
-                <head>
-                    <title>Web Dnd</title>
-                <head>
-                <body>
-                    <h1>500 - Internal Server Error</h1>
-                </body>
-            <html>
-            ''')
-
     def serve_forever(self):
         # Socket creation
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -256,9 +242,13 @@ class HttpServer:
                             self._log.debug(f'End connection {address[0]}:{address[1]}')
                             break
 
-                        request = HttpRequest.from_str(data.decode('ascii'))
-                        response = self.handle_request(request, address)
-                        connection_socket.sendall(response.to_bytes())
+                        try:
+                            request = HttpRequest.from_str(data.decode('ascii'))
+                            response = self.handle_request(request, address)
+                            connection_socket.sendall(response.to_bytes())
+                        except HttpError as e:
+                            self._log.error(e)
+                            connection_socket.sendall(HttpResponse('HTTP/1.1', HTTPStatus.BAD_REQUEST).to_bytes())
 
     def filepath_from_url(self, url):
         # URL decode and parse
@@ -272,33 +262,32 @@ class HttpServer:
         if parsed_url.path[0] != '/':
             raise HttpFormatError(f'URL path must start with /, got {parsed_url.path}')
 
-        requested_file = self._working_dir / parsed_url.path[1:]
-        requested_file.resolve()
+        requested_file = (self._working_dir / parsed_url.path[1:]).resolve()
 
-        if not requested_file.exists():
-            raise HttpFileNotFoundError(f'"{requested_file}" does not exist')
+        if not requested_file.exists() or requested_file.is_dir():
+            raise HttpFileNotFoundError(f'"{requested_file}" could not be found')
 
-        if requested_file.is_dir():
-            raise HttpFileNotFoundError(f'"{requested_file}" is a directory')
-
-        # Security check: the files must be inside the working directory: avoids Directory Path Traversal
-        # FIXME: does not work with 'españa.txt'
-        if os.path.commonprefix([requested_file, self._working_dir]) != self._working_dir:
+        if self._working_dir not in requested_file.parents:
             raise HttpFileNotFoundError(f'"{requested_file}" is not under "{self._working_dir}"')
 
-        self._log.debug(requested_file)
         return requested_file
 
     def handle_request(self, request, address):
         response = None
-        try:
-            requested_file = self.filepath_from_url(request.url)
-            response = HttpResponse('HTTP/1.1', HTTPStatus.OK)
-            response.body_from_file(requested_file)
 
-        except HttpFileNotFoundError as e:
-            response = self._not_found_response
-            self._log.debug(e)
+        match request.method:
+            case 'GET':
+                try:
+                    requested_file = self.filepath_from_url(request.url)
+                    response = HttpResponse('HTTP/1.1', HTTPStatus.OK)
+                    response.body_from_file(requested_file)
+
+                except HttpFileNotFoundError as e:
+                    response = self._not_found_response
+                    self._log.debug(e)
+
+            case _:
+                response = HttpResponse('HTTP/1.1', HTTPStatus.IM_A_TEAPOT)
 
         self._log.info(f'{address[0]} -- {request.method} {unquote(request.url)} -- {response.status.value} {response.status.phrase}')
         return response

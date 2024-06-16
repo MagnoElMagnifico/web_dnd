@@ -5,6 +5,7 @@ import os
 import socket
 import sys
 
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlparse, unquote
@@ -29,7 +30,7 @@ class HttpRequest:
         assert isinstance(body, str | None), 'body must be a string'
         assert isinstance(headers, dict), 'headers must be a dictionary'
 
-        if method not in ['GET', 'POST']:
+        if method not in ['GET']:
             raise NotImplementedError(f'The method {method} is not supported')
 
         self._method = method
@@ -66,27 +67,25 @@ class HttpRequest:
         line_iter = iter(msg.splitlines())
 
         # Process first line: method, url and version
-        first_line = next(line_iter).split(' ')
+        request_line = next(line_iter).split(' ')
 
-        if len(first_line) != 3:
-            raise HttpFormatError(f'Expected 3 fields, got {len(first_line)}: {' '.join(first_line)}')
+        if len(request_line) != 3:
+            raise HttpFormatError(f'Expected 3 fields, got {len(request_line)}: {' '.join(request_line)}')
 
-        [method, url, version] = first_line
+        method, url, version = request_line
 
         # The rest must be headers and body
         headers = {}
         body = None
 
         try:
-            line = next(line_iter)
-            while line:  # Iter until empty line
-                [header, value] = [e.strip() for e in line.split(':', 1)]
+            header_line = next(line_iter)
+            while header_line and header_line != '\r\n':  # Iter until empty line
+                header, value = [e.strip() for e in header_line.split(':', 1)]
                 headers[header.lower()] = value
-                line = next(line_iter)
+                header_line = next(line_iter)
 
-            assert not line, 'Malformed header: expected empty line'
-            line = next(line_iter)
-
+            next(line_iter)  # Ignore empty line
             body = ''.join(line_iter)
 
         except StopIteration:
@@ -180,13 +179,16 @@ class HttpResponse:
 
 class HttpServer:
     def __init__(self, ip='', port=8080, working_dir=os.getcwd()):
+        # NOTE: these are read-only, no need for locks
         self._log = logging.getLogger('web_dnd')
         self._ip = ip
         self._port = port
 
         mimetypes.init()
+
         assert isinstance(working_dir, Path), 'working_dir must be pathlib.Path'
         self._working_dir = working_dir.resolve()
+
         self._routing = {
             '/': 'index.html'
         }
@@ -227,28 +229,12 @@ class HttpServer:
 
             self._log.info(f'Server running on {self._working_dir}: http://{repr_ip}:{self._port}/')
 
-            while True:
-                connection_socket, address = server_socket.accept()
-                self._log.debug(f'Accept {address[0]}:{address[1]}')
-
-                # TODO: threads
-                with connection_socket:
-                    # Handle petitions until the connection is closed
-                    while True:
-                        # FIXME: problems with the path /AAAAAA<repeats 1024 times>
-                        data = connection_socket.recv(1024)
-
-                        if not data:
-                            self._log.debug(f'End connection {address[0]}:{address[1]}')
-                            break
-
-                        try:
-                            request = HttpRequest.from_str(data.decode('ascii'))
-                            response = self.handle_request(request, address)
-                            connection_socket.sendall(response.to_bytes())
-                        except HttpError as e:
-                            self._log.error(e)
-                            connection_socket.sendall(HttpResponse('HTTP/1.1', HTTPStatus.BAD_REQUEST).to_bytes())
+            # Handle requests in parallel
+            # FIXME?: cannot close the server if there is still pending connections
+            with ThreadPoolExecutor() as thp:
+                while True:
+                    connection_socket, address = server_socket.accept()
+                    thp.submit(self.handle_request, connection_socket, address)
 
     def filepath_from_url(self, url):
         # URL decode and parse
@@ -272,7 +258,28 @@ class HttpServer:
 
         return requested_file
 
-    def handle_request(self, request, address):
+    def handle_request(self, connection_socket, address):
+        self._log.debug(f'Accept {address[0]}:{address[1]}')
+
+        with connection_socket:
+            # Handle petitions until the connection is closed
+            while True:
+                # FIXME: problems with the path /AAA<repeats 1024 times>
+                data = connection_socket.recv(1024)
+
+                if not data:
+                    self._log.debug(f'End connection {address[0]}:{address[1]}')
+                    break
+
+                try:
+                    request = HttpRequest.from_str(data.decode('ascii'))
+                    response = self.process_request(request, address)
+                    connection_socket.sendall(response.to_bytes())
+                except HttpError as e:
+                    self._log.error(e)
+                    connection_socket.sendall(HttpResponse('HTTP/1.1', HTTPStatus.BAD_REQUEST).to_bytes())
+
+    def process_request(self, request, address):
         response = None
 
         match request.method:

@@ -19,6 +19,8 @@ class Character{
     }
 }
 
+
+
 class User{
     listaMapas = [];
     constructor(user_name, passwd_hash) {

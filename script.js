@@ -19,6 +19,15 @@ class Character{
     }
 }
 
+class User{
+    listaMapas = [];
+    constructor(user_name, passwd_hash) {
+        this.user_name = user_name;
+        this.passwd_hash = passwd_hash;
+    }
+}
+
+
 class Tile{
     constructor(posX,posY,type, diffTerr) {
         this.posX = posX;

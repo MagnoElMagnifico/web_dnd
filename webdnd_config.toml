@@ -1,0 +1,35 @@
+ip = "localhost"
+port = 8080
+
+# Path of the files to serve relative to this config file
+serve_path = "./frontend"
+
+[file_logging]
+# Enable or disable logging to a file
+enable = true
+# Name of the log file
+file = "webdnd.log"
+
+# Configure the minimum level to show.
+# Options:
+# - debug
+# - info
+# - warn
+# - error
+# - critital
+level = "info"
+
+[logging]
+# Enable or disable logging to the console
+enable = true
+
+# Configure the minimum level to show.
+# Options:
+# - debug
+# - info
+# - warn
+# - error
+# - critital
+level = "debug"
+
+[database]

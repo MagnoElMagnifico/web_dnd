@@ -1,341 +1,125 @@
 import argparse
 import logging
-import mimetypes
-import os
-import socket
 import sys
+import tomllib
+import traceback
 
-from concurrent.futures import ThreadPoolExecutor
-from http import HTTPStatus
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from http_server import HttpServer
 
 
-class HttpError(Exception):
-    ''' Base class exception for all the errors in the application '''
+def config_assert(config, key, value_type, section=None, allowed_values=None):
+    if key not in config:
+        if section is None:
+            print(f'CONFIG: "{key}" property is required')
+        else:
+            print(f'CONFIG: "{key}" property is required in the section "{section}"')
+        exit(1)
 
+    if not isinstance(config[key], value_type):
+        print(f'CONFIG: "{key}" must be a {value_type.__name__}')
+        exit(1)
 
-class HttpFormatError(HttpError):
-    ''' The format of the HTTP message is invalid '''
+    if allowed_values is not None:
+        if config[key] not in allowed_values:
+            print(f'CONFIG: the value "{config[key]}" for the key "{key}" is not allowed. Valid options: {allowed_values}')
+            exit(1)
 
 
-class HttpFileNotFoundError(HttpError):
-    ''' The requested file was not found '''
+def parse_command_line_options():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--config', type=Path, default='webdnd_config.toml', help='Path to config file')
+    return parser.parse_args()
 
 
-class HttpRequest:
-    def __init__(self, method, url, version, headers, body):
-        assert isinstance(url, str), 'URL must be a string'
-        assert isinstance(version, str), 'version must be a string'
-        assert isinstance(body, str | None), 'body must be a string'
-        assert isinstance(headers, dict), 'headers must be a dictionary'
+def parse_config_file(config_path):
+    try:
+        config_file = open(config_path, 'rb')
+        config = tomllib.load(config_file)
 
-        if method not in ['GET']:
-            raise NotImplementedError(f'The method {method} is not supported')
+        # Check if required properties exist
+        config_assert(config, 'ip', str)
+        config_assert(config, 'port', int)
+        config_assert(config, 'serve_path', str)
 
-        self._method = method
-        self._url = url
-        self._version = version
-        self._body = body
-        self._headers = headers
+        return config
 
-    def __getitem__(self, key):
-        assert isinstance(key, str), 'Key must be a string'
-        return self._headers[key]
+    except FileNotFoundError:
+        print(f'CONFIG: "{config_path}" cannot be found')
+        exit(1)
+    except tomllib.TOMLDecodeError as e:
+        print(f'CONFIG: "{config_path}" contains errors: {e}')
+        exit(1)
+    finally:
+        config_file.close()
 
-    @property
-    def body(self):
-        return self._body
 
-    @property
-    def url(self):
-        return self._url
+def config_logging(config):
+    logger = logging.getLogger('web_dnd')
+    logger.setLevel(logging.DEBUG)
 
-    @property
-    def method(self):
-        return self._method
+    formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s')
 
-    @property
-    def version(self):
-        return self._method
+    # Check if logging to stdout is enabled
+    if 'logging' in config and 'enable' in config['logging'] and config['logging']['enable']:
+        log_config = config['logging']
 
-    @classmethod
-    def from_str(cls, msg):
-        assert isinstance(msg, str) and msg, 'msg must be a not-empty string'
+        # Assert that required properties exist
+        config_assert(log_config, 'level', str,
+                      allowed_values=['debug', 'info', 'warn', 'error', 'critical'],
+                      section='logging')
 
-        # Iterate line by line
-        line_iter = iter(msg.splitlines())
+        stdout_level = getattr(logging, log_config['level'].upper(), None)
 
-        # Process first line: method, url and version
-        request_line = next(line_iter).split(' ')
+        log_stdout = logging.StreamHandler(sys.stdout)
+        log_stdout.setLevel(stdout_level)
+        log_stdout.setFormatter(formatter)
+        logger.addHandler(log_stdout)
 
-        if len(request_line) != 3:
-            raise HttpFormatError(f'Expected 3 fields, got {len(request_line)}: {' '.join(request_line)}')
+    # Check if logging to file is enabled
+    if 'file_logging' in config and 'enable' in config['file_logging'] and config['file_logging']['enable']:
+        filelog_config = config['file_logging']
 
-        method, url, version = request_line
+        # Assert that required properties exist
+        config_assert(filelog_config, 'level', str,
+                      allowed_values=['debug', 'info', 'warn', 'error', 'critical'],
+                      section='file_logging')
+        config_assert(filelog_config, 'file', str, section='file_logging')
 
-        # The rest must be headers and body
-        headers = {}
-        body = None
+        file_level = getattr(logging, filelog_config['level'].upper(), None)
 
-        try:
-            header_line = next(line_iter)
-            while header_line and header_line != '\r\n':  # Iter until empty line
-                header, value = [e.strip() for e in header_line.split(':', 1)]
-                headers[header.lower()] = value
-                header_line = next(line_iter)
+        log_file = logging.FileHandler(filelog_config['file'], encoding='utf-8')
+        log_file.setLevel(file_level)
+        log_file.setFormatter(formatter)
+        logger.addHandler(log_file)
 
-            next(line_iter)  # Ignore empty line
-            body = ''.join(line_iter)
-
-        except StopIteration:
-            ...
-
-        return cls(method, url, version, headers, body)
-
-    def __str__(self):
-        request = f'{self._method} {self._url} {self._version}\r\n'
-        request += ''.join([f'{header}: {value}\r\n' for header, value in self._headers.items()])
-        if self._body:
-            request += f'\r\n{self._body}'
-        return request
-
-
-class HttpResponse:
-    def __init__(self, version, status):
-        assert isinstance(version, str), 'version must be a string'
-        assert isinstance(status, HTTPStatus), 'status must be http.HTTPStatus'
-
-        self._version = version
-        self._status = status
-        self._headers = {}
-        self._body = None
-
-    @property
-    def status(self):
-        return self._status
-
-    @status.setter
-    def status(self, status):
-        assert isinstance(status, HTTPStatus), 'status must be http.HTTPStatus'
-        self._status = status
-
-    @property
-    def version(self):
-        return self._version
-
-    @version.setter
-    def version(self, version):
-        assert isinstance(version, str), 'version must be a string'
-        self._version = version
-
-    def add_body(self, new_body):
-        # TODO: add option to remove whitespace
-        self._body = new_body
-        self._headers['content-length'] = len(new_body)
-
-    def body_from_file(self, filepath):
-        assert isinstance(filepath, Path), 'filepath must be pathlib.Path'
-
-        self.add_body(filepath.read_bytes())
-
-        mt = mimetypes.guess_type(filepath)
-        self._headers['content-type'] = f'{mt[0] if mt[0] else 'text/plain'}; charset={mt[1] if mt[1] else 'utf-8'}'
-
-    def __setitem__(self, key, value):
-        assert isinstance(key, str), 'key must be a string'
-        self._headers[key.lower()] = value
-
-    def __getitem__(self, key):
-        assert isinstance(key, str), 'key must be a string'
-        return self._headers[key]
-
-    def __str__(self):
-        response = f'{self._version} {self._status.value} {self._status.phrase}\r\n'
-        response += ''.join([f'{header}: {value}\r\n' for header, value in self._headers.items()])
-        if self._body:
-            if isinstance(self._body, bytes):
-                response += f'\r\n{self._body.decode('ascii')}'
-            elif isinstance(self._body, str):
-                response += f'\r\n{self._body}'
-
-        return response
-
-    def to_bytes(self):
-        header = f'{self._version} {self._status.value} {self._status.phrase}\r\n'
-        header += ''.join([f'{header}: {value}\r\n' for header, value in self._headers.items()])
-        header += '\r\n'
-
-        response = bytearray(header, 'ascii')
-
-        if self._body:
-            if isinstance(self._body, bytes):
-                response += self._body
-            elif isinstance(self._body, str):
-                response += self._body.encode('ascii')
-
-        return response
-
-
-class HttpServer:
-    def __init__(self, ip='', port=8080, working_dir=os.getcwd()):
-        # NOTE: these are read-only, no need for locks
-        self._log = logging.getLogger('web_dnd')
-        self._ip = ip
-        self._port = port
-
-        mimetypes.init()
-
-        assert isinstance(working_dir, Path), 'working_dir must be pathlib.Path'
-        self._working_dir = working_dir.resolve()
-
-        self._routing = {
-            '/': 'index.html'
-        }
-
-        self._not_found_response = HttpResponse('HTTP/1.1', HTTPStatus.NOT_FOUND)
-        self._not_found_response['content-type'] = 'text/html'
-        self._not_found_response.add_body('''
-            <html>
-                <head>
-                    <title>Web Dnd</title>
-                <head>
-                <body>
-                    <h1>404 - Not Found</h1>
-                </body>
-            <html>
-            ''')
-
-    def serve_forever(self):
-        # Socket creation
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-            # Bind the socket to the given IP. Panic if it was invalid.
-            try:
-                server_socket.bind((self._ip, self._port))
-            except Exception as e:  # TODO: specify exception
-                self._log.critical(e)
-                exit(1)
-
-            server_socket.listen()
-
-            repr_ip = ''
-            match self._ip:
-                case '':
-                    repr_ip = '0.0.0.0'
-                case '<broadcast>':
-                    repr_ip = '255.255.255.255'
-                case ip:
-                    repr_ip = ip
-
-            self._log.info(f'Server running on {self._working_dir}: http://{repr_ip}:{self._port}/')
-
-            # Handle requests in parallel
-            # FIXME?: cannot close the server if there is still pending connections
-            with ThreadPoolExecutor() as thp:
-                while True:
-                    connection_socket, address = server_socket.accept()
-                    thp.submit(self.handle_request, connection_socket, address)
-
-    def filepath_from_url(self, url):
-        # URL decode and parse
-        decoded_url = unquote(url)
-        parsed_url = urlparse(decoded_url)
-
-        # Apply routing if avaliable
-        if parsed_url.path in self._routing:
-            return Path(self._routing[parsed_url.path])
-
-        if parsed_url.path[0] != '/':
-            raise HttpFormatError(f'URL path must start with /, got {parsed_url.path}')
-
-        requested_file = (self._working_dir / parsed_url.path[1:]).resolve()
-
-        if not requested_file.exists() or requested_file.is_dir():
-            raise HttpFileNotFoundError(f'"{requested_file}" could not be found')
-
-        if self._working_dir not in requested_file.parents:
-            raise HttpFileNotFoundError(f'"{requested_file}" is not under "{self._working_dir}"')
-
-        return requested_file
-
-    def handle_request(self, connection_socket, address):
-        self._log.debug(f'Accept {address[0]}:{address[1]}')
-
-        with connection_socket:
-            # Handle petitions until the connection is closed
-            while True:
-                # FIXME: problems with the path /AAA<repeats 1024 times>
-                data = connection_socket.recv(1024)
-
-                if not data:
-                    self._log.debug(f'End connection {address[0]}:{address[1]}')
-                    break
-
-                try:
-                    request = HttpRequest.from_str(data.decode('ascii'))
-                    response = self.process_request(request, address)
-                    connection_socket.sendall(response.to_bytes())
-                except HttpError as e:
-                    self._log.error(e)
-                    connection_socket.sendall(HttpResponse('HTTP/1.1', HTTPStatus.BAD_REQUEST).to_bytes())
-
-    def process_request(self, request, address):
-        response = None
-
-        match request.method:
-            case 'GET':
-                try:
-                    requested_file = self.filepath_from_url(request.url)
-                    response = HttpResponse('HTTP/1.1', HTTPStatus.OK)
-                    response.body_from_file(requested_file)
-
-                except HttpFileNotFoundError as e:
-                    response = self._not_found_response
-                    self._log.debug(e)
-
-            case _:
-                response = HttpResponse('HTTP/1.1', HTTPStatus.IM_A_TEAPOT)
-
-        self._log.info(f'{address[0]} -- {request.method} {unquote(request.url)} -- {response.status.value} {response.status.phrase}')
-        return response
+    return logger
 
 
 def main():
-    # CLI parser setup
-    parser = argparse.ArgumentParser()
-    parser.add_argument('ip', type=str, default='127.0.0.1', help='IP del servidor')
-    parser.add_argument('port', type=int, default=8080, help='Puerto del servidor')
-    parser.add_argument('--dir', type=Path, default=os.getcwd(), help='Selecciona un directorio a servir. Por defecto usa el CWD')
-    parser.add_argument('--log', type=str, default='debug', choices=['debug', 'info', 'warn', 'error', 'critical'], help='Configura el nivel de logging de stdout')
-    parser.add_argument('--logfile', type=Path, default='web_dnd.log', help='Configura el archivo de log')
-    args = parser.parse_args()
+    args = parse_command_line_options()
+
+    # Open config file
+    config = parse_config_file(args.config)
 
     # Logger setup
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s')
-    numeric_level = getattr(logging, args.log.upper(), None)
-
-    log_stdout = logging.StreamHandler(sys.stdout)
-    log_stdout.setLevel(numeric_level)
-    log_stdout.setFormatter(formatter)
-
-    log_file = logging.FileHandler(args.logfile, encoding='utf-8')
-    log_file.setLevel(logging.DEBUG)
-    log_file.setFormatter(formatter)
-
-    logger = logging.getLogger('web_dnd')
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(log_stdout)
-    logger.addHandler(log_file)
+    logger = config_logging(config)
 
     # HttpServer creation
     try:
-        server = HttpServer(args.ip, args.port, args.dir.resolve())
+        server = HttpServer(config['ip'], config['port'], Path(config['serve_path']))
         server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        # Log any unhandled exception
+        exception_msg = traceback.format_exception(e)
+        logger.debug(f'{exception_msg}')
+        logger.critical(f'{e}')
 
     logging.shutdown()
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

@@ -74,3 +74,19 @@ button.login-button:hover {
     background-color: white;
 }
 
+button.register-button {
+    color: black;
+    text-align: center;
+    padding: 5px;
+    border: 2px solid #ccc;
+    margin: 5px 0;
+    width: 50%;
+    box-sizing: border-box;
+    transition-duration: 0.4s;
+    background-color: #0440fD;
+}
+
+button.register-button:hover {
+    background-color: white;
+}
+

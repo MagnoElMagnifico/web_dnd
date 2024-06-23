@@ -30,7 +30,12 @@ passwordInput.name = 'password';
 const enterButton = document.createElement('button');
 enterButton.textContent = 'Iniciar sesión';
 enterButton.classList.add('login-button');
-enterButton.addEventListener('click', onButtonClick);
+enterButton.addEventListener('click', logIn);
+
+const registerButton = document.createElement('button');
+registerButton.textContent = 'Registrarse';
+registerButton.classList.add('register-button');
+registerButton.addEventListener('click', goToRegister);
 
 
 document.body.appendChild(userIdLabel);
@@ -42,10 +47,12 @@ document.body.appendChild(document.createElement('br'));
 document.body.appendChild(passwordInput);
 document.body.appendChild(document.createElement('br'));
 document.body.appendChild(enterButton);
+document.body.appendChild(document.createElement('br'));
+document.body.appendChild(registerButton);
 
 
 
-function onButtonClick() {
+function logIn() {
   const userName = document.getElementById('userName').value;
   const passwd = document.getElementById('password').value;
   if(document.getElementById('userName').value.replaceAll(/\s/g,'').length === 0 ||
@@ -55,9 +62,21 @@ function onButtonClick() {
   else{
         console.log(userName + ", " + passwd);
     }
-
 }
 
+function goToRegister() {
+    window.location.href = "frontend/index.html";
+}
+
+fetch('/about').then(function (response) {
+	if (response.ok) {
+		return response.text();
+	}
+	throw response;
+}).then(function (text) {
+	let dialog = document.querySelector('dialog');
+	dialog.innnerHTML = text;
+});
 
 
 

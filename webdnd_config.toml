@@ -2,13 +2,42 @@ ip = "localhost"
 port = 8080
 
 # Path of the files to serve relative to this config file
-serve_path = "./frontend"
+# The remaining filepaths are relative to this location
+serve_path = "frontend"
 
-[file_logging]
+
+# Define how the server finds the file to serve:
+#  1. Check 'routing.paths'. If it does not exist, throw 404.
+#  2. Check if the URL path exists inside 'serve_path'.
+#  3. If it does not, use 'try_extensions'
+[routing]
+# File to send when the server cannot find the resource
+not_found = "404.html"
+# File to send when the server throws an error
+server_error = "500.html"
+
+# TODO?:
+# When a URL is not found and it does not have an extension, the server will try
+# with the following extensions in order.
+#
+# Example:
+#   http://localhost:8080/index
+#   ==> 'index' cannot be found
+#   ==> try with 'index.html'
+#
+# try_extensions = [ ".html", ]
+
+[routing.paths]
+# These URLs will map to the specified file
+"/" = "index.html"
+"/test" = "index.html"
+
+
+[logging.file]
 # Enable or disable logging to a file
 enable = true
 # Name of the log file
-file = "webdnd.log"
+filepath = "webdnd.log"
 
 # Configure the minimum level to show.
 # Options:
@@ -19,7 +48,7 @@ file = "webdnd.log"
 # - critital
 level = "info"
 
-[logging]
+[logging.stdout]
 # Enable or disable logging to the console
 enable = true
 
@@ -32,4 +61,17 @@ enable = true
 # - critital
 level = "debug"
 
-[database]
+
+# # TODO?:
+# # If the request line is very long:
+# #  - 414 URI Too Long
+# #  - 501 Not Implemented
+# [socket]
+# # Limits the maximum size in bytes of the requests handled by the server
+# # 8000 bytes is recommended only for the request line
+# buffer_size = 1024
+
+# # TODO:?
+# [database]
+# file = "backend/webdnd.db"
+# creation_script = "backend/database_creation.sql"

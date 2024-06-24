@@ -1,0 +1,86 @@
+@font-face {
+    font-family: TheWitches;
+    src: url(/styles/TheWitches.ttf);
+}
+
+@font-face {
+    font-family: Cloister;
+    src: url(/styles/CloisterBlackLight.ttf);
+}
+
+body {
+    background: #222;
+    color: #ddd;
+
+    /* Make the body expand to fit the screen */
+    min-height: 100vh;
+    min-width: 100vw;
+
+    padding: 0;
+    margin: 0;
+}
+
+header {
+    width: 100vw;
+    margin: 0;
+    padding: 10px 0;
+    text-align: center;
+}
+
+h1 {
+    font-size: 40pt;
+    /* TODO */
+    /* text-shadow: 0 0 5px #bba; */
+    font-family: Cloister;
+}
+
+header .logo {
+    margin: 0;
+
+    font-family: TheWitches;
+    font-size: 40pt;
+
+    text-decoration: none;
+    text-shadow: 0 0 5px #bba;
+    color: #ddd;
+}
+
+main {
+    margin: 0 30vw;
+}
+
+form {
+    display: grid;
+    grid-template-columns: minmax(20ch, 30%) auto;
+    grid-gap: 5px;
+}
+
+button {
+    border-radius: 5px;
+    background: #ddd;
+    font-family: serif;
+    font-size: 12pt;
+}
+
+form button {
+    align-self: center;
+    justify-self: center;
+    grid-column: 1 / span 2;
+}
+
+input {
+    background: #ddd;
+    border: 3px solid #ddd;
+    border-radius: 5px;
+}
+
+input:focus {
+    box-shadow: 0 0 10px #dfd;
+    border: 3px solid #ddd;
+}
+
+input:user-invalid {
+    background: #f05;
+    border: 3px solid #f05;
+}
+

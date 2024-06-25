@@ -58,7 +58,7 @@ button {
     box-sizing: border-box;
 }
 
-button.login-button {
+button.green-button {
     color: black;
     text-align: center;
     padding: 5px;
@@ -70,11 +70,11 @@ button.login-button {
     background-color: #04AA6D;
 }
 
-button.login-button:hover {
+button.green-button:hover {
     background-color: white;
 }
 
-button.register-button {
+button.blue-button {
     color: black;
     text-align: center;
     padding: 5px;
@@ -86,7 +86,7 @@ button.register-button {
     background-color: #0440fD;
 }
 
-button.register-button:hover {
+button.blue-button:hover {
     background-color: white;
 }
 

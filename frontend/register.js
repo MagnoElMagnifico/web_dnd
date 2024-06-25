@@ -1,3 +1,4 @@
+
 fetch('/españa.txt').then(function(response) {
     return response.text();
 }).then(function(data) {
@@ -28,7 +29,7 @@ passwordInput.name = 'password';
 
 const registerButton = document.createElement('button');
 registerButton.textContent = 'Registrarse';
-registerButton.classList.add('register-button');
+registerButton.classList.add('green-button');
 registerButton.addEventListener('click', register);
 
 
@@ -52,5 +53,7 @@ function register() {
     }
   else{
         console.log(userName + ", " + passwd);
+
+
     }
 }

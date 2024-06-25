@@ -1,3 +1,5 @@
+
+
 fetch('/españa.txt').then(function(response) {
     return response.text();
 }).then(function(data) {
@@ -29,12 +31,12 @@ passwordInput.name = 'password';
 
 const enterButton = document.createElement('button');
 enterButton.textContent = 'Iniciar sesión';
-enterButton.classList.add('login-button');
+enterButton.classList.add('green-button');
 enterButton.addEventListener('click', logIn);
 
 const registerButton = document.createElement('button');
 registerButton.textContent = 'Registrarse';
-registerButton.classList.add('register-button');
+registerButton.classList.add('blue-button');
 registerButton.addEventListener('click', goToRegister);
 
 
@@ -65,7 +67,7 @@ function logIn() {
 }
 
 function goToRegister() {
-    window.location.href = "frontend/index.html";
+    document.location.assign("frontend/registerW.html");
 }
 
 fetch('/about').then(function (response) {

@@ -190,7 +190,7 @@ class HttpServer:
         self._working_dir = working_dir.resolve()
 
         self._routing = {
-            '/': 'index.html'
+            '/': 'frontend/index.html'
         }
 
         self._not_found_response = HttpResponse('HTTP/1.1', HTTPStatus.NOT_FOUND)

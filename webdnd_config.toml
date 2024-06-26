@@ -33,6 +33,36 @@ server_error = "500.html"
 "/test" = "index.html"
 
 
+[security]
+# # TODO:
+# # Duration of the session cookie in seconds.
+# session_max_age = 86400  # seconds (24h)
+
+# scrypt parameters
+# WARNING: Changing these will impact performance.
+# Estimated memory usage: salt_size * n * r * p bytes.
+#
+# References:
+#  - https://crypto.stackexchange.com/a/37088
+#  - https://cryptobook.nakov.com/mac-and-key-derivation/scrypt
+
+# Iterations count. Must be a positive integer power of two different than 1.
+# This is the parameter you should teak: make it the biggest possible without
+# slowing down your system.
+n = 16_384  # 2**14
+
+# Block size: sequential read size. Controls memory latency and depends on the
+# system (custom hardware, etc).
+r = 16
+
+# Paralelism factor.
+# The server is already parallel, so it is best to leave it as 1.
+p = 1
+
+# Size of the hashed output in bytes.
+dklen = 64
+
+
 [logging.file]
 # Enable or disable logging to a file
 enable = true
@@ -70,8 +100,9 @@ level = "debug"
 # # Limits the maximum size in bytes of the requests handled by the server
 # # 8000 bytes is recommended only for the request line
 # buffer_size = 1024
+#
+# max_threads = ???
 
-# # TODO:?
-# [database]
-# file = "backend/webdnd.db"
-# creation_script = "backend/database_creation.sql"
+[database]
+filepath = "webdnd.db"
+creation_script = "backend/database_creation.sql"

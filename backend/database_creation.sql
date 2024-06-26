@@ -9,8 +9,9 @@ create table if not exists users (
         primary key
         not null,
     passwd_hash text
-        not null
-    -- cookie text -- TODO: HTTP Autentitation
+        not null,
+    session_id text
+        unique -- An index should be created
 );
 
 

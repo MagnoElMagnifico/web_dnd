@@ -130,9 +130,17 @@ def main():
     config_assert(config, 'port', int)
     config_assert(config, 'serve_path', str)
 
-    config_assert(config['routing'], 'not_found', str)
-    config_assert(config['routing'], 'server_error', str)
-    # config_assert(config['routing'], 'try_extensions', list)
+    config_assert(config['routing'], 'not_found', str, section='routing')
+    config_assert(config['routing'], 'server_error', str, section='routing')
+
+    # PasswordHasher settings
+    config_assert(config['security'], 'n', int, section='security')
+    config_assert(config['security'], 'r', int, section='security')
+    config_assert(config['security'], 'p', int, section='security')
+    config_assert(config['security'], 'dklen', int, section='security')
+
+    # Database settings
+    config_assert(config['database'], 'filepath', str, section='database')
 
     # HttpServer creation
     server = HttpServer(config)

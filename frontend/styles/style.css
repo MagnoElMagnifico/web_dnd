@@ -84,3 +84,11 @@ input:user-invalid {
     border: 3px solid #f05;
 }
 
+.inline-error {
+    color: #f00;
+    margin: 5px 0;
+    align-self: center;
+    justify-self: right;
+    grid-column: 1 / span 2;
+}
+

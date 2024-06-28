@@ -46,6 +46,10 @@ server_error = "500.html"
 #  - https://crypto.stackexchange.com/a/37088
 #  - https://cryptobook.nakov.com/mac-and-key-derivation/scrypt
 
+# Size in bytes of random values generated.
+# Used for password salting and session ids.
+salt_size = 32  # bytes
+
 # Iterations count. Must be a positive integer power of two different than 1.
 # This is the parameter you should teak: make it the biggest possible without
 # slowing down your system.

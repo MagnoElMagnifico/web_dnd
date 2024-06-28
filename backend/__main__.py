@@ -138,6 +138,7 @@ def main():
     config_assert(config['security'], 'r', int, section='security')
     config_assert(config['security'], 'p', int, section='security')
     config_assert(config['security'], 'dklen', int, section='security')
+    config_assert(config['security'], 'salt_size', int, section='security')
 
     # Database settings
     config_assert(config['database'], 'filepath', str, section='database')

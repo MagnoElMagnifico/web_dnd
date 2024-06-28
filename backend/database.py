@@ -1,9 +1,19 @@
 import sqlite3
+import security
 
 
 class Database:
     def __init__(self, config):
+        '''
+        Create the database if it does not exist.
+
+        Required config fields:
+        - `config['database']['filepath']` Filepath of the database
+        - Other fields required by the securityPasswordHasher class
+        '''
+
         self.db_file = config['database']['filepath']
+        self.hasher = security.PasswordHasher(config)
 
         # Check if the database is empty
         connection = sqlite3.connect(self.db_file)
@@ -13,7 +23,8 @@ class Database:
             select count(*)
             from sqlite_master
             where type = 'table'
-            ''').fetchone()
+            '''
+        ).fetchone()
         connection.commit()
 
         # In that case, execute the creation script
@@ -25,14 +36,21 @@ class Database:
         connection.close()
 
     def get_handle(self):
-        # SQLite is thread safe, but the module is not
-        # It is required to create a new connection for every thread.
-        return DatabaseHandle(self.db_file)
+        '''
+        SQLite is thread safe, but the Python module may be not. It is required
+        to create a new connection to the datase for every
+        thread.
+
+        So use this method to create a new object to handle the database
+        connection and cursor.
+        '''
+        return DatabaseHandle(self.db_file, self.hasher)
 
 
 class DatabaseHandle:
-    def __init__(self, db_file):
+    def __init__(self, db_file, hasher):
         self.db_file = db_file
+        self.hasher = hasher
 
     def __enter__(self):
         self.connection = sqlite3.connect(self.db_file)
@@ -42,46 +60,84 @@ class DatabaseHandle:
     def __exit__(self, exc_type, exc_value, exc_tb):
         self.connection.close()
 
-    def signup(self, user_name, password_hash, session_id):
-        self.cursor.execute(
-            '''\
-            insert into users (user_name, passwd_hash, session_id) values (?, ?, ?);
-            ''',
-            (user_name, password_hash, session_id,))
-        self.connection.commit()
-
     def check_session_id(self, session_id):
+        ''' :return: `True` if the given `session_id` is valid '''
+
         result = self.cursor.execute(
             '''\
             select count(*)
             from users
             where session_id = ?;
             ''',
-            (session_id,)).fetchone()
+            (session_id,)
+        ).fetchone()
+
         self.connection.commit()
 
         return int(result[0]) == 1
 
-    def get_user_data(self, user_name):
-        result = self.cursor.execute(
+    def signup(self, user_name, password):
+        '''
+        Creates a new user in the database.
+
+        :param user_name: username of the new user.
+        :param password: the password of the new user. This will be hashed with
+        a random salt value for security (see `security` module).
+        :return: the `session_id` for the new user.
+        :raises sqlite3.IntegrityError: if the username already exists.
+        '''
+        password_hash = self.hasher.compute_hash(password)
+        session_id = self.hasher.get_random_id()
+
+        # Throws sqlite3.IntegrityError (UNIQUE constraint) when user_name
+        # already exists.
+        self.cursor.execute(
             '''\
-            select user_name, passwd_hash, session_id
+            insert into users (user_name, passwd_hash, session_id) values (?, ?, ?);
+            ''',
+            (user_name, password_hash, session_id,)
+        )
+
+        self.connection.commit()
+        return session_id
+
+    def login(self, user_name, password):
+        '''
+        Checks if the password matchs the user. In that case returns a new
+        `session_id`, otherwise `None`.
+        '''
+
+        password_hash = self.cursor.execute(
+            '''\
+            select passwd_hash
             from users
             where user_name = ?
             ''',
-            (user_name,)).fetchone()
-        self.connection.commit()
-        return result
+            (user_name,)
+        ).fetchone()
 
-    def login(self, user_name, session_id):
-        # TODO: This might be a security problem. This function logs a user
-        # without checking the password.
-        # Maybe the Database class should have the PasswordHasher.
+        # If the query does not return any rows, the user does not exist.
+        if password_hash is None:
+            return None
+
+        password_hash = password_hash[0]
+
+        # If the passwords do not match, exit.
+        if not self.hasher.check_password(password_hash, password):
+            return None
+
+        # Otherwise, login the user by creating a session_id
+        session_id = self.hasher.get_random_id()
+
+        # Add the session id to the database
         self.cursor.execute(
             '''\
             update users
             set session_id = ?
             where user_name = ?
             ''',
-            (session_id, user_name,))
+            (session_id, user_name,)
+        )
+
         self.connection.commit()
+        return session_id

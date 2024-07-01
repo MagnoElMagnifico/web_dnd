@@ -81,7 +81,7 @@ input:focus {
 
 input:user-invalid {
     background: #f05;
-    border: 3px solid #f05;
+    border: 3px solid #ffffff;
 }
 
 .inline-error {
@@ -92,3 +92,74 @@ input:user-invalid {
     grid-column: 1 / span 2;
 }
 
+
+.userInput {
+    position: relative;
+    width:200px;
+    height:20px;
+    z-index: 2;
+    background: rgba(81, 121, 91, 0.9);
+    transition: background-color 0.3s ease;
+}
+
+.userInput:focus{
+    background-color: #23cb1c;
+}
+
+
+header .prideLogo{
+    margin: 0;
+
+    font-family: TheWitches;
+    font-size: 40pt;
+
+    text-decoration: none;
+    text-shadow: 0 0 5px #bba;
+    display: inline-block;
+    position: relative;
+    transition: background-color 0.3s ease;
+    animation: labelColorChange 5s infinite;
+}
+
+
+@keyframes labelColorChange {
+
+    0% {
+        color: #FF1493;
+        text-shadow: 0 0 5px #bba;
+    }
+    12.5% {
+        color: #FF0000;
+        text-shadow: 0 0 10px #bba;
+    }
+    25% {
+        color: #FFA500;
+        text-shadow: 0 0 15px #bba;
+    }
+    37.5% {
+        color: #FFFF00;
+        text-shadow: 0 0 20px #bba;
+    }
+    50% {
+        color: #7FFF00;
+        text-shadow: 0 0 25px #bba;
+    }
+    62.5% {
+        color: #00FFFF;
+        text-shadow: 0 0 20px #bba;
+    }
+    75% {
+        color: #0000FF;
+        text-shadow: 0 0 15px #bba;
+    }
+    87.5% {
+        color: #9932CC;
+        text-shadow: 0 0 10px #bba;
+    }
+
+    100% {
+        color: #FF1493;
+        text-shadow: 0 0 5px #bba;
+    }
+
+}

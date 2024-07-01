@@ -1,224 +1,83 @@
-import argparse
+import json
 import logging
 import mimetypes
-import os
 import socket
-import sys
+import traceback
+import sqlite3
 
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
-
-class HttpError(Exception):
-    ''' Base class exception for all the errors in the application '''
-
-
-class HttpFormatError(HttpError):
-    ''' The format of the HTTP message is invalid '''
+from http_msg import HttpRequest, HttpResponse
+from database import Database
 
 
-class HttpFileNotFoundError(HttpError):
-    ''' The requested file was not found '''
+def get_filepath(path, working_dir):
+    assert isinstance(working_dir, Path), 'working_dir must be a pathlib.Path'
 
+    # If the requested path is not a Path object, try to create one
+    if not isinstance(path, Path):
+        path = Path(str(path))
 
-class HttpRequest:
-    def __init__(self, method, url, version, headers, body):
-        assert isinstance(url, str), 'URL must be a string'
-        assert isinstance(version, str), 'version must be a string'
-        assert isinstance(body, str | None), 'body must be a string'
-        assert isinstance(headers, dict), 'headers must be a dictionary'
+    # The / operator will not work if path starts with '/'
+    try:
+        path = path.relative_to('/')
+    except ValueError:
+        # If this exception is thrown, it means it is not relative to '/', so it
+        # does not start with '/'
+        pass
 
-        if method not in ['GET']:
-            raise NotImplementedError(f'The method {method} is not supported')
+    requested_file = (working_dir / path).resolve()
 
-        self._method = method
-        self._url = url
-        self._version = version
-        self._body = body
-        self._headers = headers
+    if not requested_file.exists() or requested_file.is_dir():
+        raise FileNotFoundError(f'"{requested_file}" could not be found')
 
-    def __getitem__(self, key):
-        assert isinstance(key, str), 'Key must be a string'
-        return self._headers[key]
+    # Avoid Directory Path Traversal
+    if working_dir not in requested_file.parents:
+        raise FileNotFoundError(f'"{requested_file}" is not under "{working_dir}"')
 
-    @property
-    def body(self):
-        return self._body
-
-    @property
-    def url(self):
-        return self._url
-
-    @property
-    def method(self):
-        return self._method
-
-    @property
-    def version(self):
-        return self._method
-
-    @classmethod
-    def from_str(cls, msg):
-        assert isinstance(msg, str) and msg, 'msg must be a not-empty string'
-
-        # Iterate line by line
-        line_iter = iter(msg.splitlines())
-
-        # Process first line: method, url and version
-        request_line = next(line_iter).split(' ')
-
-        if len(request_line) != 3:
-            raise HttpFormatError(f'Expected 3 fields, got {len(request_line)}: {' '.join(request_line)}')
-
-        method, url, version = request_line
-
-        # The rest must be headers and body
-        headers = {}
-        body = None
-
-        try:
-            header_line = next(line_iter)
-            while header_line and header_line != '\r\n':  # Iter until empty line
-                header, value = [e.strip() for e in header_line.split(':', 1)]
-                headers[header.lower()] = value
-                header_line = next(line_iter)
-
-            next(line_iter)  # Ignore empty line
-            body = ''.join(line_iter)
-
-        except StopIteration:
-            ...
-
-        return cls(method, url, version, headers, body)
-
-    def __str__(self):
-        request = f'{self._method} {self._url} {self._version}\r\n'
-        request += ''.join([f'{header}: {value}\r\n' for header, value in self._headers.items()])
-        if self._body:
-            request += f'\r\n{self._body}'
-        return request
-
-
-class HttpResponse:
-    def __init__(self, version, status):
-        assert isinstance(version, str), 'version must be a string'
-        assert isinstance(status, HTTPStatus), 'status must be http.HTTPStatus'
-
-        self._version = version
-        self._status = status
-        self._headers = {}
-        self._body = None
-
-    @property
-    def status(self):
-        return self._status
-
-    @status.setter
-    def status(self, status):
-        assert isinstance(status, HTTPStatus), 'status must be http.HTTPStatus'
-        self._status = status
-
-    @property
-    def version(self):
-        return self._version
-
-    @version.setter
-    def version(self, version):
-        assert isinstance(version, str), 'version must be a string'
-        self._version = version
-
-    def add_body(self, new_body):
-        # TODO: add option to remove whitespace
-        self._body = new_body
-        self._headers['content-length'] = len(new_body)
-
-    def body_from_file(self, filepath):
-        assert isinstance(filepath, Path), 'filepath must be pathlib.Path'
-
-        self.add_body(filepath.read_bytes())
-
-        mt = mimetypes.guess_type(filepath)
-        self._headers['content-type'] = f'{mt[0] if mt[0] else 'text/plain'}; charset={mt[1] if mt[1] else 'utf-8'}'
-
-    def __setitem__(self, key, value):
-        assert isinstance(key, str), 'key must be a string'
-        self._headers[key.lower()] = value
-
-    def __getitem__(self, key):
-        assert isinstance(key, str), 'key must be a string'
-        return self._headers[key]
-
-    def __str__(self):
-        response = f'{self._version} {self._status.value} {self._status.phrase}\r\n'
-        response += ''.join([f'{header}: {value}\r\n' for header, value in self._headers.items()])
-        if self._body:
-            if isinstance(self._body, bytes):
-                response += f'\r\n{self._body.decode('ascii')}'
-            elif isinstance(self._body, str):
-                response += f'\r\n{self._body}'
-
-        return response
-
-    def to_bytes(self):
-        header = f'{self._version} {self._status.value} {self._status.phrase}\r\n'
-        header += ''.join([f'{header}: {value}\r\n' for header, value in self._headers.items()])
-        header += '\r\n'
-
-        response = bytearray(header, 'ascii')
-
-        if self._body:
-            if isinstance(self._body, bytes):
-                response += self._body
-            elif isinstance(self._body, str):
-                response += self._body.encode('ascii')
-
-        return response
+    return requested_file
 
 
 class HttpServer:
-    def __init__(self, ip='', port=8080, working_dir=os.getcwd()):
-        # NOTE: these are read-only, no need for locks
-        self._log = logging.getLogger('web_dnd')
-        self._ip = ip
-        self._port = port
-
+    def __init__(self, config):
         mimetypes.init()
 
-        assert isinstance(working_dir, Path), 'working_dir must be pathlib.Path'
-        self._working_dir = working_dir.resolve()
+        # NOTE: these are read-only, no need for locks
+        self._log = logging.getLogger('web_dnd')  # This is thread safe
+        self._ip = config['ip']
+        self._port = config['port']
+        self._working_dir = Path(config['serve_path']).resolve()
+        self._routing = config['routing']['paths']
 
-        self._routing = {
-            '/': 'index.html'
-        }
+        self._db = Database(config)
 
-        self._not_found_response = HttpResponse('HTTP/1.1', HTTPStatus.NOT_FOUND)
-        self._not_found_response['content-type'] = 'text/html'
-        self._not_found_response.add_body('''
-            <html>
-                <head>
-                    <title>Web Dnd</title>
-                <head>
-                <body>
-                    <h1>404 - Not Found</h1>
-                </body>
-            <html>
-            ''')
+        # Preload default responses
+        # 404
+        self._not_found_response = HttpResponse.from_file(
+            HTTPStatus.NOT_FOUND,
+            get_filepath(config['routing']['not_found'], self._working_dir)
+        ).to_bytes()
+
+        # 500
+        self._server_error_response = HttpResponse.from_file(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            get_filepath(config['routing']['server_error'], self._working_dir)
+        ).to_bytes()
 
     def serve_forever(self):
         # Socket creation
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-            # Bind the socket to the given IP. Panic if it was invalid.
-            try:
-                server_socket.bind((self._ip, self._port))
-            except Exception as e:  # TODO: specify exception
-                self._log.critical(e)
-                exit(1)
+            # Allow reusing the same IP and port between executions
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
+            # Bind the socket to the given IP and listen for connections
+            server_socket.bind((self._ip, self._port))
             server_socket.listen()
 
-            repr_ip = ''
             match self._ip:
                 case '':
                     repr_ip = '0.0.0.0'
@@ -234,108 +93,148 @@ class HttpServer:
             with ThreadPoolExecutor() as thp:
                 while True:
                     connection_socket, address = server_socket.accept()
-                    thp.submit(self.handle_request, connection_socket, address)
+                    thp.submit(self.thread_handle_request, connection_socket, address)
 
-    def filepath_from_url(self, url):
-        # URL decode and parse
-        decoded_url = unquote(url)
-        parsed_url = urlparse(decoded_url)
-
-        # Apply routing if avaliable
-        if parsed_url.path in self._routing:
-            return Path(self._routing[parsed_url.path])
-
-        if parsed_url.path[0] != '/':
-            raise HttpFormatError(f'URL path must start with /, got {parsed_url.path}')
-
-        requested_file = (self._working_dir / parsed_url.path[1:]).resolve()
-
-        if not requested_file.exists() or requested_file.is_dir():
-            raise HttpFileNotFoundError(f'"{requested_file}" could not be found')
-
-        if self._working_dir not in requested_file.parents:
-            raise HttpFileNotFoundError(f'"{requested_file}" is not under "{self._working_dir}"')
-
-        return requested_file
-
-    def handle_request(self, connection_socket, address):
-        self._log.debug(f'Accept {address[0]}:{address[1]}')
+    def thread_handle_request(self, connection_socket, address):
+        self._log.info(f'Accept {address[0]}:{address[1]}')
 
         with connection_socket:
             # Handle petitions until the connection is closed
+            # TODO: Maybe handle this request and then quit, so the thread can
+            # be used for more than one connection. This will solve the previous
+            # FIXME. But, how to handle the socket?
             while True:
-                # FIXME: problems with the path /AAA<repeats 1024 times>
-                data = connection_socket.recv(1024)
-
-                if not data:
-                    self._log.debug(f'End connection {address[0]}:{address[1]}')
-                    break
-
                 try:
-                    request = HttpRequest.from_str(data.decode('ascii'))
-                    response = self.process_request(request, address)
+                    # FIXME: problems with the path /AAA<repeats 1024 times>
+                    data = connection_socket.recv(1024)
+
+                    if not data:
+                        self._log.info(f'End connection {address[0]}:{address[1]}')
+                        break
+
+                    request = HttpRequest.from_bytes(data)
+
+                    match request.method:
+                        case 'GET':
+                            response = self.do_GET(request, address)
+
+                        case 'POST':
+                            response = self.do_POST(request, address)
+
+                        case other:
+                            raise NotImplementedError(f'Handle unsupported method: "{other}"')
+
                     connection_socket.sendall(response.to_bytes())
-                except HttpError as e:
-                    self._log.error(e)
-                    connection_socket.sendall(HttpResponse('HTTP/1.1', HTTPStatus.BAD_REQUEST).to_bytes())
 
-    def process_request(self, request, address):
-        response = None
+                    # TODO: Connection: close
+                    # TODO: HttpFormatError -- 400 Bad Request
 
-        match request.method:
-            case 'GET':
-                try:
-                    requested_file = self.filepath_from_url(request.url)
-                    response = HttpResponse('HTTP/1.1', HTTPStatus.OK)
-                    response.body_from_file(requested_file)
+                except FileNotFoundError as e:
+                    self._log.info(f'{address[0]} -- {request.method} {request.url} -- Not found: {e}')
+                    connection_socket.sendall(self._not_found_response)
 
-                except HttpFileNotFoundError as e:
-                    response = self._not_found_response
-                    self._log.debug(e)
+                except Exception as e:
+                    # Log any unhandled exception
+                    exception_msg = ''.join(traceback.format_exception(e))
+                    self._log.critical(f'Unhandled exception in thread -- {e}\n{exception_msg}')
 
-            case _:
-                response = HttpResponse('HTTP/1.1', HTTPStatus.IM_A_TEAPOT)
+                    connection_socket.sendall(self._server_error_response)
 
-        self._log.info(f'{address[0]} -- {request.method} {unquote(request.url)} -- {response.status.value} {response.status.phrase}')
+    def do_GET(self, request, address):
+        # All the GET requests will return the required file
+        # TODO: Do not always send HTML. Should check for the 'accept' header
+
+        # URL decode and parse
+        decoded_url = unquote(request.url)
+        parsed_url = urlparse(decoded_url)
+
+        # Test if the cookies are working
+        if parsed_url.path == '/' and 'cookie' in request and 'SID' in request['cookie']:
+            with self._db.get_handle() as db:
+                if db.check_session_id(request['cookie']['SID']):
+                    return HttpResponse.from_str(HTTPStatus.OK, 'You made it!')
+
+        # Apply routing if avaliable
+        if parsed_url.path in self._routing:
+            requested_file = self._routing[parsed_url.path]
+        else:
+            requested_file = parsed_url.path
+
+        # Safely get its filepath
+        filepath = get_filepath(requested_file, self._working_dir)
+
+        # Return the response
+        response = HttpResponse.from_file(HTTPStatus.OK, filepath)
+        self._log.info(f'{address[0]} -- GET {request.url} -- OK')
         return response
 
+    def do_POST(self, request, address):
+        match request.url:
+            case '/api/signup':
+                try:
+                    request_json = json.loads(request.body)
 
-def main():
-    # CLI parser setup
-    parser = argparse.ArgumentParser()
-    parser.add_argument('ip', type=str, default='127.0.0.1', help='IP del servidor')
-    parser.add_argument('port', type=int, default=8080, help='Puerto del servidor')
-    parser.add_argument('--dir', type=Path, default=os.getcwd(), help='Selecciona un directorio a servir. Por defecto usa el CWD')
-    parser.add_argument('--log', type=str, default='debug', choices=['debug', 'info', 'warn', 'error', 'critical'], help='Configura el nivel de logging de stdout')
-    parser.add_argument('--logfile', type=Path, default='web_dnd.log', help='Configura el archivo de log')
-    args = parser.parse_args()
+                    # Check the required parameters
+                    if 'password' not in request_json or 'username' not in request_json:
+                        return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
+                            'error': 'Malformed request',
+                            'description': 'La petición debe tener los campos "username" y "password"'
+                        })
 
-    # Logger setup
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s')
-    numeric_level = getattr(logging, args.log.upper(), None)
+                    # TODO: check username and password format
 
-    log_stdout = logging.StreamHandler(sys.stdout)
-    log_stdout.setLevel(numeric_level)
-    log_stdout.setFormatter(formatter)
+                    with self._db.get_handle() as db:
+                        session_id = db.signup(request_json['username'], request_json['password'])
 
-    log_file = logging.FileHandler(args.logfile, encoding='utf-8')
-    log_file.setLevel(logging.DEBUG)
-    log_file.setFormatter(formatter)
+                        # TODO: Remove this when deploying to production
+                        self._log.debug(f'Credentials -- "{request_json['username']}" :: "{request_json['password']}"')
+                        self._log.info(f'"{address[0]}" -- Create user "{request_json['username']}" -- OK')
 
-    logger = logging.getLogger('web_dnd')
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(log_stdout)
-    logger.addHandler(log_file)
+                        response = HttpResponse(HTTPStatus.OK)
+                        response['set-cookie'] = f'SID={session_id}; SameSite=Strict; HttpOnly; Path=/; Max-Age={24 * 60 * 60}'
+                        response['content-length'] = 0
+                        return response
 
-    # HttpServer creation
-    try:
-        server = HttpServer(args.ip, args.port, args.dir.resolve())
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+                except sqlite3.IntegrityError:
+                    self._log.info(f'"{address[0]}" -- Create user "{request_json['username']}" -- Already exists')
+                    return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
+                        'error': 'Already exists',
+                        'description': f'El nombre de usuario "{request_json['username']}" ya existe'
+                    })
 
-    logging.shutdown()
+            # TODO: solve cookie session problems:
+            #   - Session/Cookie hijacking
+            #   - Cross-site request forgery
+            case '/api/login':
+                request_json = json.loads(request.body)
 
+                # Check the required parameters
+                if 'password' not in request_json or 'username' not in request_json:
+                    return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
+                        'error': 'Malformed request',
+                        'description': 'La petición debe tener los campos "username" y "password"'
+                    })
 
-if __name__ == '__main__':
-    main()
+                # TODO: check username and password format
+
+                with self._db.get_handle() as db:
+                    session_id = db.login(request_json['username'], request_json['password'])
+
+                    if session_id is not None:
+                        # Loging successful
+                        self._log.info(f'"{address[0]}" -- Login user "{request_json['username']}" -- OK')
+                        response = HttpResponse(HTTPStatus.OK)
+                        response['set-cookie'] = f'SID={session_id}; SameSite=Strict; HttpOnly; Path=/; Max-Age={24 * 60 * 60}'
+                        response['content-length'] = 0
+                        return response
+
+                    else:
+                        # Loggin failed
+                        self._log.info(f'"{address[0]}" -- Login user "{request_json['username']}" -- Failed')
+                        return HttpResponse.from_json(HTTPStatus.UNAUTHORIZED, {
+                            'error': 'Unauthorized',
+                            'description': 'El usuario o la constraseña son incorrectos'
+                        })
+
+            case other:
+                raise FileNotFoundError(f'"{other}" invalid POST URL')

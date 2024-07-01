@@ -3,17 +3,42 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="/styles/style.css">
 
-        <!-- <link rel="icon" href="..."> -->
-        <!-- <meta name="author" content="..."> -->
-        <!-- <meta name="keywords" content=""> -->
+        <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
 
-        <link rel="stylesheet" href="/style.css">
         <title>Web DnD</title>
     </head>
     <body>
-        <!-- <canvas id="canvas"></canvas> -->
-        <img src="https://png.pngtree.com/png-clipart/20221222/original/pngtree-flag-of-spain-png-image_8794094.png" />
-        <script src="script.js"></script>
+        <header>
+            <a class="logo" href="/">Web DnD</a>
+        </header>
+
+        <main>
+            <h1>Iniciar sesión</h1>
+            <form id="login">
+                <label>Nombre de usuario:</label>
+                <input type="text" name="input-username" required>
+                <label>Contraseña:</label>
+                <input type="password" name="input-password" required>
+                <p class="inline-error" id="login-error" hidden>Ejemplo de error</p>
+                <button type="submit">Iniciar sesión</button>
+            </form>
+
+            <h1>Crear cuenta</h1>
+            <form id="signup">
+                <label>Nombre de usuario:</label>
+                <input type="text" name="input-username" required>
+                <label>Contraseña:</label>
+                <input type="password" name="input-password1" required>
+                <label>Repetir contraseña:</label>
+                <input type="password" name="input-password2" required>
+                <p class="inline-error" id="signup-error" hidden>Ejemplo de error</p>
+                <button type="submit">Crear cuenta</button>
+            </form>
+        </main>
+
+        <script src="/scripts/login-signup.js"></script>
     </body>
 </html>

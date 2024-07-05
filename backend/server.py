@@ -4,6 +4,7 @@ import mimetypes
 import socket
 import traceback
 import sqlite3
+import re
 
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
@@ -72,7 +73,7 @@ class HttpServer:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             # Allow reusing the same IP and port between executions
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+           # server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
             # Bind the socket to the given IP and listen for connections
             server_socket.bind((self._ip, self._port))
@@ -182,6 +183,16 @@ class HttpServer:
                         })
 
                     # TODO: check username and password format
+                    #The following characters are not allowed:
+                    #: ; < = > ? _ ` ~
+                    #Also other characters that you would usually think they won`t work (something in the caliber of 'ඞ')
+                    if (re.search("^[\x20-\x39 \x40-\x5E \x61-\x7D áéíóúÁÉÍÓÚ]", request_json['username'])
+                    or re.search("^[\x20-\x39 \x40-\x5E \x61-\x7D áéíóúÁÉÍÓÚ]", request_json['password'])):
+                        return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
+                            'error': 'Malformed request',
+                            'description': 'El nombre de usuario o contraseña contienen caracteres inválidos'
+                        })
+
 
                     with self._db.get_handle() as db:
                         session_id = db.signup(request_json['username'], request_json['password'])

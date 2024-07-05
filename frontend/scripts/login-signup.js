@@ -6,8 +6,10 @@ function sendJson(url, json) {
             'Accept': 'application/json'
         },
         'body': JSON.stringify(json)
+        // body only necessary upon sending data
     });
 }
+
 
 async function login(inputUsername, inputPassword) {
     const errorLabel = document.getElementById('login-error')

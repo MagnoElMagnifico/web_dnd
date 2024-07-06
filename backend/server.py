@@ -144,30 +144,44 @@ class HttpServer:
     def do_GET(self, request, address):
         # All the GET requests will return the required file
         # TODO: Do not always send HTML. Should check for the 'accept' header
+        match request.url:
+            case 'api/campaigns':
+                try:
+                    decoded_url = unquote(request.url)
+                    parsed_url = urlparse(decoded_url)
+                    if parsed_url.path == '/' and 'cookie' in request and 'SID' in request['cookie']:
+                        with self._db.get_handle() as db:
+                            return db.get_campaigns()
+                except sqlite3.Error:
+                    return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
+                        'error': 'Unkown error',
+                        'description': 'No se que carámbanos ha pasado'
+                    })
+                
+            case other:
+                # URL decode and parse
+                decoded_url = unquote(request.url)
+                parsed_url = urlparse(decoded_url)
 
-        # URL decode and parse
-        decoded_url = unquote(request.url)
-        parsed_url = urlparse(decoded_url)
+                # Test if the cookies are working
+                if parsed_url.path == '/' and 'cookie' in request and 'SID' in request['cookie']:
+                    with self._db.get_handle() as db:
+                        if db.check_session_id(request['cookie']['SID']):
+                            return HttpResponse.from_str(HTTPStatus.OK, 'You made it!')
 
-        # Test if the cookies are working
-        if parsed_url.path == '/' and 'cookie' in request and 'SID' in request['cookie']:
-            with self._db.get_handle() as db:
-                if db.check_session_id(request['cookie']['SID']):
-                    return HttpResponse.from_str(HTTPStatus.OK, 'You made it!')
+                # Apply routing if avaliable
+                if parsed_url.path in self._routing:
+                    requested_file = self._routing[parsed_url.path]
+                else:
+                    requested_file = parsed_url.path
 
-        # Apply routing if avaliable
-        if parsed_url.path in self._routing:
-            requested_file = self._routing[parsed_url.path]
-        else:
-            requested_file = parsed_url.path
+                # Safely get its filepath
+                filepath = get_filepath(requested_file, self._working_dir)
 
-        # Safely get its filepath
-        filepath = get_filepath(requested_file, self._working_dir)
-
-        # Return the response
-        response = HttpResponse.from_file(HTTPStatus.OK, filepath)
-        self._log.info(f'{address[0]} -- GET {request.url} -- OK')
-        return response
+                # Return the response
+                response = HttpResponse.from_file(HTTPStatus.OK, filepath)
+                self._log.info(f'{address[0]} -- GET {request.url} -- OK')
+                return response
 
     def do_POST(self, request, address):
         match request.url:
@@ -246,6 +260,9 @@ class HttpServer:
                             'error': 'Unauthorized',
                             'description': 'El usuario o la constraseña son incorrectos'
                         })
+
+
+
 
             case other:
                 raise FileNotFoundError(f'"{other}" invalid POST URL')

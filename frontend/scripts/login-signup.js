@@ -10,6 +10,17 @@ function sendJson(url, json) {
     });
 }
 
+function sendJsonGET(url, json) {
+    return fetch(url, {
+        'method': 'GET',
+        'headers': {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        // body only necessary upon sending data
+    });
+}
+
 
 async function login(inputUsername, inputPassword) {
     const errorLabel = document.getElementById('login-error')
@@ -71,7 +82,9 @@ async function signup(inputUsername, inputPassword1, inputPassword2) {
         }
 
         errorLabel.hidden = true;
+        const campaingsList = await sendJosn('/api/campaigns',{
 
+        })
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
         window.location.reload();

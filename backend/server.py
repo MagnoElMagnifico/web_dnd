@@ -148,6 +148,7 @@ class HttpServer:
                 try:
                     decoded_url = unquote(request.url)
                     parsed_url = urlparse(decoded_url)
+                    # FIXME: Leaving with no comments the next line raises an error
                     if (#parsed_url.path == '/' and
                             'cookie' in request and 'SID' in request['cookie']):
                         with self._db.get_handle() as db:

@@ -47,7 +47,8 @@ async function login(inputUsername, inputPassword) {
         console.log("Hola???")
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
-        window.location.href = '../campaign-select.html';
+
+        window.location.href = 'campaign-select.html';
         window.location.reload();
         console.log("Hola???")
         console.log(campaigns);
@@ -96,6 +97,7 @@ async function signup(inputUsername, inputPassword1, inputPassword2) {
         })
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
+
         window.location.reload();
 
     } catch (error) {

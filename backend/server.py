@@ -98,7 +98,6 @@ class HttpServer:
 
     def thread_handle_request(self, connection_socket, address):
         self._log.info(f'Accept {address[0]}:{address[1]}')
-
         with connection_socket:
             # Handle petitions until the connection is closed
             # TODO: Maybe handle this request and then quit, so the thread can
@@ -114,7 +113,6 @@ class HttpServer:
                         break
 
                     request = HttpRequest.from_bytes(data)
-
                     match request.method:
                         case 'GET':
                             response = self.do_GET(request, address)
@@ -124,7 +122,6 @@ class HttpServer:
 
                         case other:
                             raise NotImplementedError(f'Handle unsupported method: "{other}"')
-
                     connection_socket.sendall(response.to_bytes())
 
                     # TODO: Connection: close
@@ -144,21 +141,25 @@ class HttpServer:
     def do_GET(self, request, address):
         # All the GET requests will return the required file
         # TODO: Do not always send HTML. Should check for the 'accept' header
+        print("ELIGIENDO case do_GET")
         match request.url:
-            case 'api/campaigns':
+            case '/campaigns':
+                print("do_GET CAMPAIGNS")
                 try:
                     decoded_url = unquote(request.url)
                     parsed_url = urlparse(decoded_url)
-                    if parsed_url.path == '/' and 'cookie' in request and 'SID' in request['cookie']:
+                    if (#parsed_url.path == '/' and
+                            'cookie' in request and 'SID' in request['cookie']):
                         with self._db.get_handle() as db:
-                            return db.get_campaigns()
+                            return HttpResponse.from_str(HTTPStatus.OK, json.dumps(db.get_campaigns(request['cookie']['SID'])))
                 except sqlite3.Error:
                     return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
                         'error': 'Unkown error',
                         'description': 'No se que carámbanos ha pasado'
                     })
-                
+
             case other:
+                print("do:GET other")
                 # URL decode and parse
                 decoded_url = unquote(request.url)
                 parsed_url = urlparse(decoded_url)
@@ -167,7 +168,7 @@ class HttpServer:
                 if parsed_url.path == '/' and 'cookie' in request and 'SID' in request['cookie']:
                     with self._db.get_handle() as db:
                         if db.check_session_id(request['cookie']['SID']):
-                            return HttpResponse.from_str(HTTPStatus.OK, 'You made it!')
+                            return HttpResponse.from_str(HTTPStatus.OK, json.dumps(db.get_campaigns(request['cookie']['SID'])))
 
                 # Apply routing if avaliable
                 if parsed_url.path in self._routing:
@@ -200,8 +201,8 @@ class HttpServer:
                     #The following characters are not allowed:
                     #: ; < = > ? _ ` ~
                     #Also other characters that you would usually think they won`t work (something in the caliber of 'ඞ')
-                    if (re.search("^[\x20-\x39 \x40-\x5E \x61-\x7D áéíóúÁÉÍÓÚ]", request_json['username'])
-                    or re.search("^[\x20-\x39 \x40-\x5E \x61-\x7D áéíóúÁÉÍÓÚ]", request_json['password'])):
+                    if (re.search("[^\x20-\x39\x40-\x5E\x61-\x7DáéíóúÁÉÍÓÚ]", request_json['username'])
+                    or re.search("[^\x20-\x39\x40-\x5E\x61-\x7DáéíóúÁÉÍÓÚ]", request_json['password'])):
                         return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
                             'error': 'Malformed request',
                             'description': 'El nombre de usuario o contraseña contienen caracteres inválidos'

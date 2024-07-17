@@ -4,46 +4,46 @@ import security
 
 class Database:
     def __init__(self, config):
-        '''
+        """
         Create the database if it does not exist.
 
         Required config fields:
         - `config['database']['filepath']` Filepath of the database
         - Other fields required by the securityPasswordHasher class
-        '''
+        """
 
-        self.db_file = config['database']['filepath']
+        self.db_file = config["database"]["filepath"]
         self.hasher = security.PasswordHasher(config)
 
         # Check if the database is empty
         connection = sqlite3.connect(self.db_file)
         cursor = connection.cursor()
         result = cursor.execute(
-            '''\
+            """\
             select count(*)
             from sqlite_master
             where type = 'table'
-            '''
+            """
         ).fetchone()
         connection.commit()
 
         # In that case, execute the creation script
-        if int(result[0]) == 0 and 'creation_script' in config['database']:
-            with open(config['database']['creation_script'], 'r') as f:
+        if int(result[0]) == 0 and "creation_script" in config["database"]:
+            with open(config["database"]["creation_script"], "r") as f:
                 cursor.executescript(f.read())
                 connection.commit()
 
         connection.close()
 
     def get_handle(self):
-        '''
+        """
         SQLite is thread safe, but the Python module may be not. It is required
         to create a new connection to the datase for every
         thread.
 
         So use this method to create a new object to handle the database
         connection and cursor.
-        '''
+        """
         return DatabaseHandle(self.db_file, self.hasher)
 
 
@@ -61,15 +61,15 @@ class DatabaseHandle:
         self.connection.close()
 
     def check_session_id(self, session_id):
-        ''' :return: `True` if the given `session_id` is valid '''
+        """:return: `True` if the given `session_id` is valid"""
 
         result = self.cursor.execute(
-            '''\
+            """\
             select count(*)
             from users
             where session_id = ?;
-            ''',
-            (session_id,)
+            """,
+            (session_id,),
         ).fetchone()
 
         self.connection.commit()
@@ -77,7 +77,7 @@ class DatabaseHandle:
         return int(result[0]) == 1
 
     def signup(self, user_name, password):
-        '''
+        """
         Creates a new user in the database.
 
         :param user_name: username of the new user.
@@ -85,35 +85,39 @@ class DatabaseHandle:
         a random salt value for security (see `security` module).
         :return: the `session_id` for the new user.
         :raises sqlite3.IntegrityError: if the username already exists.
-        '''
+        """
         password_hash = self.hasher.compute_hash(password)
         session_id = self.hasher.get_random_id()
 
         # Throws sqlite3.IntegrityError (UNIQUE constraint) when user_name
         # already exists.
         self.cursor.execute(
-            '''\
+            """\
             insert into users (user_name, passwd_hash, session_id) values (?, ?, ?);
-            ''',
-            (user_name, password_hash, session_id,)
+            """,
+            (
+                user_name,
+                password_hash,
+                session_id,
+            ),
         )
 
         self.connection.commit()
         return session_id
 
     def login(self, user_name, password):
-        '''
+        """
         Checks if the password matchs the user. In that case returns a new
         `session_id`, otherwise `None`.
-        '''
+        """
 
         password_hash = self.cursor.execute(
-            '''\
+            """\
             select passwd_hash
             from users
             where user_name = ?
-            ''',
-            (user_name,)
+            """,
+            (user_name,),
         ).fetchone()
 
         # If the query does not return any rows, the user does not exist.
@@ -131,27 +135,29 @@ class DatabaseHandle:
 
         # Add the session id to the database
         self.cursor.execute(
-            '''\
+            """\
             update users
             set session_id = ?
             where user_name = ?
-            ''',
-            (session_id, user_name,)
+            """,
+            (
+                session_id,
+                user_name,
+            ),
         )
 
         self.connection.commit()
         return session_id
 
-
     def get_campaigns(self, session_id):
         result = self.cursor.execute(
-            '''
+            """
             select campaign_name from campaigns 
             join users on campaigns.dm = users.user_name
             where session_id = ?
             order by campaign_name desc;
-            ''',
-            (session_id,)
+            """,
+            (session_id,),
         ).fetchall()
 
         return result

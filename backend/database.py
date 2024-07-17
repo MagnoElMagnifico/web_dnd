@@ -141,3 +141,17 @@ class DatabaseHandle:
 
         self.connection.commit()
         return session_id
+
+
+    def get_campaigns(self, session_id):
+        result = self.cursor.execute(
+            '''
+            select campaign_name from campaigns 
+            join users on campaigns.dm = users.user_name
+            where session_id = ?
+            order by campaign_name desc;
+            ''',
+            (session_id,)
+        ).fetchall()
+
+        return result

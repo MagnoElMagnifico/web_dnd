@@ -6,8 +6,21 @@ function sendJson(url, json) {
             'Accept': 'application/json'
         },
         'body': JSON.stringify(json)
+        // body only necessary upon sending data
     });
 }
+
+function sendJsonGET(url) {
+    return fetch(url, {
+        'method': 'GET',
+        'headers': {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        // body only necessary upon sending data
+    });
+}
+
 
 async function login(inputUsername, inputPassword) {
     const errorLabel = document.getElementById('login-error')
@@ -28,9 +41,17 @@ async function login(inputUsername, inputPassword) {
 
         errorLabel.hidden = true;
 
+        const campaigns = await sendJsonGET('/campaigns');
+
+
+        console.log("Hola???")
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
+
+        window.location.href = 'campaign-select.html';
         window.location.reload();
+        console.log("Hola???")
+        console.log(campaigns);
 
     } catch (error) {
         console.error('Error:', error);
@@ -38,6 +59,8 @@ async function login(inputUsername, inputPassword) {
         errorLabel.hidden = false;
     }
 }
+
+
 
 async function signup(inputUsername, inputPassword1, inputPassword2) {
     const errorLabel = document.getElementById('signup-error')
@@ -69,9 +92,12 @@ async function signup(inputUsername, inputPassword1, inputPassword2) {
         }
 
         errorLabel.hidden = true;
+        const campaingsList = await sendJson('/api/campaigns',{
 
+        })
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
+
         window.location.reload();
 
     } catch (error) {

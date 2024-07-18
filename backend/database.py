@@ -1,66 +1,23 @@
 import sqlite3
 import security
 
-
-class Database:
-    def __init__(self, config):
-        """
-        Create the database if it does not exist.
-
-        Required config fields:
-        - `config['database']['filepath']` Filepath of the database
-        - Other fields required by the securityPasswordHasher class
-        """
-
-        self.db_file = config["database"]["filepath"]
-        self.hasher = security.PasswordHasher(config)
-
-        # Check if the database is empty
-        connection = sqlite3.connect(self.db_file)
-        cursor = connection.cursor()
-        result = cursor.execute(
-            """\
-            select count(*)
-            from sqlite_master
-            where type = 'table'
-            """
-        ).fetchone()
-        connection.commit()
-
-        # In that case, execute the creation script
-        if int(result[0]) == 0 and "creation_script" in config["database"]:
-            with open(config["database"]["creation_script"], "r") as f:
-                cursor.executescript(f.read())
-                connection.commit()
-
-        connection.close()
-
-    def get_handle(self):
-        """
-        SQLite is thread safe, but the Python module may be not. It is required
-        to create a new connection to the datase for every
-        thread.
-
-        So use this method to create a new object to handle the database
-        connection and cursor.
-        """
-        return DatabaseHandle(self.db_file, self.hasher)
+from typing import Self
 
 
 class DatabaseHandle:
-    def __init__(self, db_file, hasher):
+    def __init__(self, db_file: str, hasher: security.PasswordHasher) -> None:
         self.db_file = db_file
         self.hasher = hasher
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self.connection = sqlite3.connect(self.db_file)
         self.cursor = self.connection.cursor()
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_tb):
+    def __exit__(self, exc_type, exc_value, exc_tb) -> None:
         self.connection.close()
 
-    def check_session_id(self, session_id):
+    def check_session_id(self, session_id: str) -> bool:
         """:return: `True` if the given `session_id` is valid"""
 
         result = self.cursor.execute(
@@ -76,7 +33,7 @@ class DatabaseHandle:
 
         return int(result[0]) == 1
 
-    def signup(self, user_name, password):
+    def signup(self, user_name: str, password: str) -> str:
         """
         Creates a new user in the database.
 
@@ -105,7 +62,7 @@ class DatabaseHandle:
         self.connection.commit()
         return session_id
 
-    def login(self, user_name, password):
+    def login(self, user_name: str, password: str) -> str | None:
         """
         Checks if the password matchs the user. In that case returns a new
         `session_id`, otherwise `None`.
@@ -149,10 +106,10 @@ class DatabaseHandle:
         self.connection.commit()
         return session_id
 
-    def get_campaigns(self, session_id):
+    def get_campaigns(self, session_id: str) -> list[tuple[str]]:
         result = self.cursor.execute(
             """
-            select campaign_name from campaigns 
+            select campaign_name from campaigns
             join users on campaigns.dm = users.user_name
             where session_id = ?
             order by campaign_name desc;
@@ -161,3 +118,48 @@ class DatabaseHandle:
         ).fetchall()
 
         return result
+
+
+class Database:
+    def __init__(self, config: dict) -> None:
+        """
+        Create the database if it does not exist.
+
+        Required config fields:
+        - `config['database']['filepath']` Filepath of the database
+        - Other fields required by the securityPasswordHasher class
+        """
+
+        self.db_file = config["database"]["filepath"]
+        self.hasher = security.PasswordHasher(config)
+
+        # Check if the database is empty
+        connection = sqlite3.connect(self.db_file)
+        cursor = connection.cursor()
+        result = cursor.execute(
+            """\
+            select count(*)
+            from sqlite_master
+            where type = 'table'
+            """
+        ).fetchone()
+        connection.commit()
+
+        # In that case, execute the creation script
+        if int(result[0]) == 0 and "creation_script" in config["database"]:
+            with open(config["database"]["creation_script"], "r") as f:
+                cursor.executescript(f.read())
+                connection.commit()
+
+        connection.close()
+
+    def get_handle(self) -> DatabaseHandle:
+        """
+        SQLite is thread safe, but the Python module may be not. It is required
+        to create a new connection to the datase for every
+        thread.
+
+        So use this method to create a new object to handle the database
+        connection and cursor.
+        """
+        return DatabaseHandle(self.db_file, self.hasher)

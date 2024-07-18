@@ -1,17 +1,19 @@
-import re
 import json
 import mimetypes
-from http import HTTPStatus
+import re
+
+from http import HTTPStatus, HTTPMethod
 from pathlib import Path
+from typing import Self
+from urllib.parse import ParseResult, urlparse, unquote
+
+from templates import TemplateEngine, TemplateFormatError
 
 HTTP_VERSION = "HTTP/1.1"
+SUPPORTED_METHODS = [HTTPMethod.GET, HTTPMethod.POST]
 
 
-class HttpError(Exception):
-    """Base class exception for all the errors in the web server"""
-
-
-class HttpFormatError(HttpError):
+class HttpFormatError(Exception):
     """
     The format of the HTTP message is invalid.
     If this exception is thrown, the server must return 400 Bad Request and
@@ -30,7 +32,7 @@ class HttpRequest:
     )
 
     @classmethod
-    def from_bytes(cls, msg):
+    def from_bytes(cls, msg: bytes) -> Self:
         assert (
             isinstance(msg, bytes) and len(msg) > 0
         ), "msg must be a not-empty byte sequence"
@@ -58,10 +60,28 @@ class HttpRequest:
                 f'Expected 3 fields, got {len(request_line_fields)}: "{request_line}"'
             )
 
-        method, url, version = [e.strip() for e in request_line_fields]
+        # Parse the HTTP method
+        method = HTTPMethod(request_line_fields[0])
+
+        # Check if the method is valid
+        if method not in SUPPORTED_METHODS:
+            raise HttpFormatError(f'The method "{method}" is not supported')
+
+        # Parse the URL
+        decoded_url = unquote(request_line_fields[1])
+        parsed_url = urlparse(decoded_url)
+
+        if parsed_url.path[0] != "/":
+            raise HttpFormatError(
+                f'Invalid URL path: "{parsed_url.path}" must start with "/"'
+            )
+
+        # Also get the HTTP version
+        version = request_line_fields[2]
+
         # The rest must be headers and body
         headers = {}
-        body = None
+        body: str | None = None
 
         try:
             header_line = next(line_iter)
@@ -71,15 +91,14 @@ class HttpRequest:
                 header, value_str = [e.strip() for e in header_line.split(":", 1)]
                 header = header.lower()
 
+                # Convert common headers into a more usable data structure
                 match header:
                     case "cookie":
                         value = {
                             e[0]: e[1] for e in cls.cookie_header_re.findall(value_str)
                         }
 
-                    case "accept":
-                        # print(value_str, cls.accept_header_re.findall(value_str))
-                        value = value_str
+                    # TODO: 'accept': print(value_str, cls.accept_header_re.findall(value_str))
 
                     case _:
                         value = value_str
@@ -89,60 +108,70 @@ class HttpRequest:
                 header_line = next(line_iter)
                 header_size += len(header_line)
 
+            # TODO: use content-type charset to decode from the bytes instead
+
+            # Get the body contents
             if "content-length" in headers:
+                # If the content-length header exists, use it
                 body = msg_str[
                     header_size : header_size + int(headers["content-length"])
                 ]
             else:
+                # Otherwise, just take the remaining of the message.
+                # This should be unreachable though.
                 body = msg_str[header_size:]
 
         except StopIteration:
             pass
 
-        return cls(method, url, version, headers, body)
+        return cls(method, parsed_url, version, headers, body)
 
-    def __init__(self, method, url, version, headers, body):
-        assert isinstance(method, str), "Method must be a string"
-        assert isinstance(url, str), "URL must be a string"
-        assert isinstance(version, str), "version must be a string"
-        assert isinstance(body, str | None), "body must be a string"
-        assert isinstance(headers, dict), "headers must be a dictionary"
-
-        if method not in ["GET", "POST"]:
-            raise NotImplementedError(f"The method {method} is not supported")
-
+    def __init__(
+        self,
+        method: HTTPMethod,
+        url: ParseResult,
+        version: str,
+        headers: dict,
+        body: str | None,
+    ) -> None:
         self._method = method
         self._url = url
         self._version = version
         self._body = body
         self._headers = headers
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> dict | str:
         assert isinstance(key, str), "Key must be a string"
         return self._headers[key]
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         assert isinstance(key, str), "Key must be a string"
         return key in self._headers
 
     @property
-    def body(self):
+    def body(self) -> str | None:
         return self._body
 
     @property
-    def url(self):
+    def url(self) -> ParseResult:
         return self._url
 
     @property
-    def method(self):
+    def method(self) -> HTTPMethod:
         return self._method
 
     @property
-    def version(self):
+    def version(self) -> str:
         return self._method
 
-    def __str__(self):
-        request = f"{self._method} {self._url} {self._version}\r\n"
+    def cookie(self, cookie_name: str) -> str | None:
+        try:
+            return self._headers["cookie"][cookie_name]
+        except KeyError:
+            return None
+
+    def __str__(self) -> str:
+        request = f"{self._method.value} {self._url.geturl()} {self._version}\r\n"
         request += "".join(
             [f"{header}: {value}\r\n" for header, value in self._headers.items()]
         )
@@ -156,7 +185,30 @@ class HttpResponse:
     # minify_js = re.compile(r'\s{1,}|\n|//.*\n|/\*[\w\W]*\*/')
 
     @classmethod
-    def from_file(cls, status, filepath):
+    def from_template(
+        cls, status: HTTPStatus, filepath: Path, engine: TemplateEngine, error=False
+    ) -> Self:
+        assert isinstance(filepath, Path), "filepath must be pathlib.Path"
+
+        response = cls(status)
+        if error:
+            response.add_body(engine.error_html(filepath, status))
+        else:
+            response.add_body(engine.process_html(filepath))
+        response["content-type"] = f"text/html; charset=utf-8"
+        return response
+
+    @classmethod
+    def from_template_or_file(
+        cls, status: HTTPStatus, filepath: Path, engine: TemplateEngine, error=False
+    ) -> Self:
+        try:
+            return cls.from_template(status, filepath, engine, error)
+        except TemplateFormatError:
+            return cls.from_file(status, filepath)
+
+    @classmethod
+    def from_file(cls, status: HTTPStatus, filepath: Path) -> Self:
         assert isinstance(filepath, Path), "filepath must be pathlib.Path"
 
         response = cls(status)
@@ -170,7 +222,7 @@ class HttpResponse:
         return response
 
     @classmethod
-    def from_str(cls, status, str_body):
+    def from_str(cls, status: HTTPStatus, str_body: str) -> Self:
         assert isinstance(str_body, str), "str_body must be a string"
 
         response = cls(status)
@@ -179,7 +231,7 @@ class HttpResponse:
         return response
 
     @classmethod
-    def from_json(cls, status, json_body):
+    def from_json(cls, status: HTTPStatus, json_body: dict) -> Self:
         assert isinstance(json_body, dict), "json_body must be a dict"
 
         response = cls(status)
@@ -187,7 +239,7 @@ class HttpResponse:
         response["content-type"] = "application/json; charset=utf-8"
         return response
 
-    def __init__(self, status):
+    def __init__(self, status: HTTPStatus) -> None:
         assert isinstance(status, HTTPStatus), "status must be http.HTTPStatus"
 
         self._status = status
@@ -195,40 +247,27 @@ class HttpResponse:
         self._body = None
 
     @property
-    def status(self):
+    def status(self) -> HTTPStatus:
         return self._status
 
     @status.setter
-    def status(self, status):
+    def status(self, status: HTTPStatus) -> None:
         assert isinstance(status, HTTPStatus), "status must be http.HTTPStatus"
         self._status = status
 
-    def add_body(self, new_body):
+    def add_body(self, new_body: bytes | str) -> None:
         self._body = new_body
         self._headers["content-length"] = len(new_body)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: object) -> None:
         assert isinstance(key, str), "key must be a string"
         self._headers[key.lower()] = value
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> str | dict:
         assert isinstance(key, str), "key must be a string"
         return self._headers[key]
 
-    def __str__(self):
-        response = f"{HTTP_VERSION} {self._status.value} {self._status.phrase}\r\n"
-        response += "".join(
-            [f"{header}: {value}\r\n" for header, value in self._headers.items()]
-        )
-        if self._body:
-            if isinstance(self._body, bytes):
-                response += f"\r\n{self._body.decode('ascii')}"
-            elif isinstance(self._body, str):
-                response += f"\r\n{self._body}"
-
-        return response
-
-    def to_bytes(self):
+    def to_bytes(self) -> bytes:
         header = f"{HTTP_VERSION} {self._status.value} {self._status.phrase}\r\n"
         header += "".join(
             [f"{header}: {value}\r\n" for header, value in self._headers.items()]
@@ -241,6 +280,6 @@ class HttpResponse:
             if isinstance(self._body, bytes):
                 response += self._body
             elif isinstance(self._body, str):
-                response += self._body.encode("ascii")
+                response += self._body.encode("utf-8")
 
         return response

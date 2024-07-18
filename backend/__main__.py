@@ -6,11 +6,18 @@ import traceback
 
 from pathlib import Path
 from server import HttpServer
+from typing import Type
 
 """ Loads and configures the HTTP server """
 
 
-def config_assert(config, key, value_type, section=None, allowed_values=None):
+def config_assert(
+    config: dict,
+    key: str,
+    value_type: Type,
+    section: str | None = None,
+    allowed_values: list | None = None,
+):
     """Asserts that the config has a specific attribute.
     If it fails, shows an error an terminates the program with error exit code.
     :param config: Configuration dictionary to check
@@ -38,7 +45,7 @@ def config_assert(config, key, value_type, section=None, allowed_values=None):
             exit(1)
 
 
-def parse_command_line_options():
+def parse_command_line_options() -> argparse.Namespace:
     """Parses CLI arguments received"""
 
     parser = argparse.ArgumentParser()
@@ -52,7 +59,7 @@ def parse_command_line_options():
     return parser.parse_args()
 
 
-def parse_config_file(config_path):
+def parse_config_file(config_path: str) -> dict:
     """Reads and parses the TOML config file"""
 
     config_file = None
@@ -71,7 +78,7 @@ def parse_config_file(config_path):
             config_file.close()
 
 
-def get_log_level(value):
+def get_log_level(value: str) -> int:
     """Helper function to transform from str to logging level"""
 
     match value:
@@ -94,7 +101,7 @@ def get_log_level(value):
             raise ValueError(f'Invalid log level: "{other}"')
 
 
-def config_logging(config):
+def config_logging(config: dict) -> logging.Logger:
     """Configurates the logging system with the specified config"""
 
     logger = logging.getLogger("web_dnd")
@@ -178,7 +185,7 @@ def config_logging(config):
     return logger
 
 
-def main():
+def main() -> None:
     args = parse_command_line_options()
 
     # Open config file
@@ -192,8 +199,7 @@ def main():
     config_assert(config, "port", int)
     config_assert(config, "serve_path", str)
 
-    config_assert(config["routing"], "not_found", str, section="routing")
-    config_assert(config["routing"], "server_error", str, section="routing")
+    config_assert(config["security"], "session_max_age", int, section="security")
 
     # PasswordHasher settings
     config_assert(config["security"], "n", int, section="security")

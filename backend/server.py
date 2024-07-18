@@ -23,10 +23,11 @@ class HttpServer:
 
         # These are read-only, no need for locks
         self._log = logging.getLogger("web_dnd")  # This is thread safe
-        self._ip = config["ip"]
-        self._port = config["port"]
-        self._working_dir = Path(config["serve_path"]).resolve()
-        self._routing = config["routing"]["paths"]
+        self._ip: str = config["ip"]
+        self._port: int = config["port"]
+        self._working_dir = Path(config["serve_path"]).absolute().resolve()
+        self._routing: dict[str, str] = config["routing"]["paths"]
+        self._session_max_age: int = config["security"]["session_max_age"]
 
         self._db = Database(config)
         self._tem_engine = TemplateEngine(self._working_dir)
@@ -233,7 +234,7 @@ class HttpServer:
 
                         response = HttpResponse(HTTPStatus.OK)
                         response["set-cookie"] = (
-                            f"SID={session_id}; SameSite=Strict; HttpOnly; Path=/; Max-Age={24 * 60 * 60}"
+                            f"SID={session_id}; SameSite=Strict; HttpOnly; Path=/; Max-Age={self._session_max_age}"
                         )
                         response["content-length"] = 0
                         return response
@@ -289,7 +290,7 @@ class HttpServer:
                         )
                         response = HttpResponse(HTTPStatus.OK)
                         response["set-cookie"] = (
-                            f"SID={session_id}; SameSite=Strict; HttpOnly; Path=/; Max-Age={24 * 60 * 60}"
+                            f"SID={session_id}; SameSite=Strict; HttpOnly; Path=/; Max-Age={self._session_max_age}"
                         )
                         response["content-length"] = 0
                         return response

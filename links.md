@@ -1,3 +1,7 @@
+# Style
+
+- Python annotations [best practices](https://stackoverflow.com/a/51215227)
+
 # HTTP
 
 - [List of HTTP specs](https://httpwg.org/specs/)

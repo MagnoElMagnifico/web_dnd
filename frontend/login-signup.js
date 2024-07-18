@@ -6,18 +6,6 @@ function sendJson(url, json) {
             'Accept': 'application/json'
         },
         'body': JSON.stringify(json)
-        // body only necessary upon sending data
-    });
-}
-
-function sendJsonGET(url) {
-    return fetch(url, {
-        'method': 'GET',
-        'headers': {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        },
-        // body only necessary upon sending data
     });
 }
 
@@ -41,17 +29,9 @@ async function login(inputUsername, inputPassword) {
 
         errorLabel.hidden = true;
 
-        const campaigns = await sendJsonGET('/campaigns');
-
-
-        console.log("Hola???")
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
-
-        window.location.href = 'campaign-select.html';
         window.location.reload();
-        console.log("Hola???")
-        console.log(campaigns);
 
     } catch (error) {
         console.error('Error:', error);
@@ -61,14 +41,10 @@ async function login(inputUsername, inputPassword) {
 }
 
 
-
 async function signup(inputUsername, inputPassword1, inputPassword2) {
     const errorLabel = document.getElementById('signup-error')
 
     try {
-        // TODO: Password strength checks
-        // TODO: Username format checks
-
         if (inputPassword1 !== inputPassword2) {
             errorLabel.textContent = 'Las dos contraseñas no coinciden';
             errorLabel.hidden = false;
@@ -79,7 +55,6 @@ async function signup(inputUsername, inputPassword1, inputPassword2) {
             'username': inputUsername,
             'password': inputPassword1,
         });
-
 
         if (!response.ok) {
             // Show the server's error
@@ -92,12 +67,9 @@ async function signup(inputUsername, inputPassword1, inputPassword2) {
         }
 
         errorLabel.hidden = true;
-        const campaingsList = await sendJson('/api/campaigns',{
 
-        })
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
-
         window.location.reload();
 
     } catch (error) {
@@ -107,6 +79,7 @@ async function signup(inputUsername, inputPassword1, inputPassword2) {
     }
 }
 
+
 const loginForm = document.getElementById('login');
 loginForm.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -115,15 +88,7 @@ loginForm.addEventListener('submit', (event) => {
         loginForm['input-password'].value);
 });
 
-
 const signupForm = document.getElementById('signup');
-
-// // TODO: Check the password strength
-// signupForm['input-password1'].addEventListener('change', (event) => {
-//     console.log('change');
-//     console.log(event);
-// });
-
 signupForm.addEventListener('submit', (event) => {
     event.preventDefault();
     signup(

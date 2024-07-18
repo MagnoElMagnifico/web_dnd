@@ -1,52 +1,27 @@
 import json
 import logging
 import mimetypes
-import socket
-import traceback
-import sqlite3
 import re
+import socket
+import sqlite3
+import sys
+import traceback
 
 from concurrent.futures import ThreadPoolExecutor
-from http import HTTPStatus
+from http import HTTPMethod, HTTPStatus
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from typing import NoReturn
 
-from http_msg import HttpRequest, HttpResponse
 from database import Database
-
-
-def get_filepath(path, working_dir):
-    assert isinstance(working_dir, Path), "working_dir must be a pathlib.Path"
-
-    # If the requested path is not a Path object, try to create one
-    if not isinstance(path, Path):
-        path = Path(str(path))
-
-    # The / operator will not work if path starts with '/'
-    try:
-        path = path.relative_to("/")
-    except ValueError:
-        # If this exception is thrown, it means it is not relative to '/', so it
-        # does not start with '/'
-        pass
-
-    requested_file = (working_dir / path).resolve()
-
-    if not requested_file.exists() or requested_file.is_dir():
-        raise FileNotFoundError(f'"{requested_file}" could not be found')
-
-    # Avoid Directory Path Traversal
-    if working_dir not in requested_file.parents:
-        raise FileNotFoundError(f'"{requested_file}" is not under "{working_dir}"')
-
-    return requested_file
+from http_msg import HttpRequest, HttpResponse
+from templates import TemplateEngine, filepath_from_url
 
 
 class HttpServer:
-    def __init__(self, config):
+    def __init__(self, config: dict) -> None:
         mimetypes.init()
 
-        # NOTE: these are read-only, no need for locks
+        # These are read-only, no need for locks
         self._log = logging.getLogger("web_dnd")  # This is thread safe
         self._ip = config["ip"]
         self._port = config["port"]
@@ -54,26 +29,32 @@ class HttpServer:
         self._routing = config["routing"]["paths"]
 
         self._db = Database(config)
+        self._tem_engine = TemplateEngine(self._working_dir)
 
         # Preload default responses
         # 404
-        self._not_found_response = HttpResponse.from_file(
+        self._not_found_response = HttpResponse.from_template(
             HTTPStatus.NOT_FOUND,
-            get_filepath(config["routing"]["not_found"], self._working_dir),
+            self._working_dir / "error.html",
+            self._tem_engine,
+            error=True,
         ).to_bytes()
 
         # 500
-        self._server_error_response = HttpResponse.from_file(
+        self._server_error_response = HttpResponse.from_template(
             HTTPStatus.INTERNAL_SERVER_ERROR,
-            get_filepath(config["routing"]["server_error"], self._working_dir),
+            self._working_dir / "error.html",
+            self._tem_engine,
+            error=True,
         ).to_bytes()
 
-    def serve_forever(self):
+    def serve_forever(self) -> NoReturn:
         # Socket creation
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             # Allow reusing the same IP and port between executions
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            # server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            if sys.platform != "windows":
+                server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
             # Bind the socket to the given IP and listen for connections
             server_socket.bind((self._ip, self._port))
@@ -92,22 +73,26 @@ class HttpServer:
             )
 
             # Handle requests in parallel
-            # FIXME?: cannot close the server if there is still pending connections
+            # FIXME: Cannot close the server if there is still pending connections
             with ThreadPoolExecutor() as thp:
                 while True:
                     connection_socket, address = server_socket.accept()
                     thp.submit(self.thread_handle_request, connection_socket, address)
 
-    def thread_handle_request(self, connection_socket, address):
+    def thread_handle_request(
+        self, connection_socket: socket.socket, address: tuple[str, int]
+    ) -> None:
         self._log.info(f"Accept {address[0]}:{address[1]}")
         with connection_socket:
+
             # Handle petitions until the connection is closed
             # TODO: Maybe handle this request and then quit, so the thread can
             # be used for more than one connection. This will solve the previous
             # FIXME. But, how to handle the socket?
+
             while True:
                 try:
-                    # FIXME: problems with the path /AAA<repeats 1024 times>
+                    # FIXME: Problems with the path /AAA<repeats 1024 times>
                     data = connection_socket.recv(1024)
 
                     if not data:
@@ -116,16 +101,14 @@ class HttpServer:
 
                     request = HttpRequest.from_bytes(data)
                     match request.method:
-                        case "GET":
+                        case HTTPMethod.GET:
                             response = self.do_GET(request, address)
 
-                        case "POST":
+                        case HTTPMethod.POST:
                             response = self.do_POST(request, address)
 
                         case other:
-                            raise NotImplementedError(
-                                f'Handle unsupported method: "{other}"'
-                            )
+                            raise ValueError(f'Got unreachable method: "{other.value}"')
                     connection_socket.sendall(response.to_bytes())
 
                     # TODO: Connection: close
@@ -133,7 +116,7 @@ class HttpServer:
 
                 except FileNotFoundError as e:
                     self._log.info(
-                        f"{address[0]} -- {request.method} {request.url} -- Not found: {e}"
+                        f"{address[0]} -- {request.method} {request.url.path} -- Not found: {e}"  # pyright: ignore
                     )
                     connection_socket.sendall(self._not_found_response)
 
@@ -146,71 +129,64 @@ class HttpServer:
 
                     connection_socket.sendall(self._server_error_response)
 
-    def do_GET(self, request, address):
-        # All the GET requests will return the required file
+    def is_authenticated(self, request: HttpRequest) -> bool:
+        session_id = request.cookie("SID")
+        if session_id is not None:
+            with self._db.get_handle() as db:
+                return db.check_session_id(session_id)
+
+        return False
+
+    def do_GET(self, request: HttpRequest, address: tuple[str, int]) -> HttpResponse:
         # TODO: Do not always send HTML. Should check for the 'accept' header
-        print("ELIGIENDO case do_GET")
-        match request.url:
-            case "/campaigns":
-                print("do_GET CAMPAIGNS")
-                try:
-                    decoded_url = unquote(request.url)
-                    parsed_url = urlparse(decoded_url)
-                    # FIXME: Leaving with no comments the next line raises an error
-                    if (  # parsed_url.path == '/' and
-                        "cookie" in request and "SID" in request["cookie"]
-                    ):
-                        with self._db.get_handle() as db:
-                            return HttpResponse.from_str(
-                                HTTPStatus.OK,
-                                json.dumps(db.get_campaigns(request["cookie"]["SID"])),
-                            )
-                except sqlite3.Error:
-                    return HttpResponse.from_json(
-                        HTTPStatus.BAD_REQUEST,
-                        {
-                            "error": "Unkown error",
-                            "description": "No se que carámbanos ha pasado",
-                        },
-                    )
 
-            case other:
-                print("do:GET other")
-                # URL decode and parse
-                decoded_url = unquote(request.url)
-                parsed_url = urlparse(decoded_url)
+        url = request.url.path
 
-                # Test if the cookies are working
-                if (
-                    parsed_url.path == "/"
-                    and "cookie" in request
-                    and "SID" in request["cookie"]
-                ):
-                    with self._db.get_handle() as db:
-                        if db.check_session_id(request["cookie"]["SID"]):
-                            return HttpResponse.from_str(
-                                HTTPStatus.OK,
-                                json.dumps(db.get_campaigns(request["cookie"]["SID"])),
-                            )
+        # Apply routing if possible
+        if url in self._routing:
+            url = self._routing[url]
 
-                # Apply routing if avaliable
-                if parsed_url.path in self._routing:
-                    requested_file = self._routing[parsed_url.path]
-                else:
-                    requested_file = parsed_url.path
+        filepath = None
+        if self.is_authenticated(request):
 
-                # Safely get its filepath
-                filepath = get_filepath(requested_file, self._working_dir)
+            # TODO: Input here API implementation...
 
-                # Return the response
-                response = HttpResponse.from_file(HTTPStatus.OK, filepath)
-                self._log.info(f"{address[0]} -- GET {request.url} -- OK")
-                return response
+            try:
+                # Try to fetch that file from the private resources
+                filepath = filepath_from_url(url, self._working_dir / "private")
 
-    def do_POST(self, request, address):
-        match request.url:
+            except FileNotFoundError:
+                pass
+
+        # If autentication failed or the file was not found, try in the public
+        # resources.
+        if filepath is None:
+            filepath = filepath_from_url(url, self._working_dir)
+
+        # Return the response.
+        # Only try the templates if the file is HTML
+        if filepath.suffix == ".html":
+            response = HttpResponse.from_template_or_file(
+                HTTPStatus.OK, filepath, self._tem_engine
+            )
+        else:
+            response = HttpResponse.from_file(HTTPStatus.OK, filepath)
+        self._log.info(f"{address[0]} -- GET {request.url.path} -- OK")
+        return response
+
+    def do_POST(self, request: HttpRequest, address: tuple[str, int]) -> HttpResponse:
+        match request.url.path:
             case "/api/signup":
                 try:
+                    if request.body is None:
+                        return HttpResponse.from_json(
+                            HTTPStatus.BAD_REQUEST,
+                            {
+                                "error": "Malformed request",
+                                "description": 'La petición debe tener los campos "username" y "password"',
+                            },
+                        )
+
                     request_json = json.loads(request.body)
 
                     # Check the required parameters
@@ -278,6 +254,15 @@ class HttpServer:
             #   - Session/Cookie hijacking
             #   - Cross-site request forgery
             case "/api/login":
+                if request.body is None:
+                    return HttpResponse.from_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {
+                            "error": "Malformed request",
+                            "description": 'La petición debe tener los campos "username" y "password"',
+                        },
+                    )
+
                 request_json = json.loads(request.body)
 
                 # Check the required parameters

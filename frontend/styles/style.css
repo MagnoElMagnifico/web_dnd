@@ -1,3 +1,4 @@
+/**** Imported fonts ****/
 @font-face {
     font-family: TheWitches;
     src: url(/styles/TheWitches.ttf);
@@ -8,9 +9,12 @@
     src: url(/styles/CloisterBlackLight.ttf);
 }
 
-body {
+
+/**** Base elements ****/
+html, body {
     background: #222;
     color: #ddd;
+    font-size: 1rem;
 
     /* Make the body expand to fit the screen */
     min-height: 100vh;
@@ -30,72 +34,146 @@ header {
 .logo {
     margin: 0;
 
+    /* Font */
     font-family: TheWitches;
     font-size: 40pt;
 
     text-decoration: none;
     text-shadow: 0 0 5px #bba;
 
+    /* Color */
     color: #f44;
     animation: hueRotate 15s infinite;
-}
-
-main {
-    margin: 0 30vw;
-}
-
-h1 {
-    font-size: 40pt;
-    font-family: Cloister;
-}
-
-form {
-    display: grid;
-    grid-template-columns: minmax(20ch, 30%) auto;
-    grid-gap: 5px;
-}
-
-button {
-    border-radius: 5px;
-    background: #ddd;
-    font-family: serif;
-    font-size: 12pt;
-}
-
-form button {
-    align-self: center;
-    justify-self: center;
-    grid-column: 1 / span 2;
-}
-
-input {
-    background: #ddd;
-    border: 3px solid #ddd;
-    border-radius: 5px;
-}
-
-input:focus {
-    background-color: #0f5;
-    box-shadow: 0 0 10px #dfd;
-    border: 3px solid #ddd;
-}
-
-input:user-invalid {
-    background: #f05;
-    border: 3px solid #fff;
-}
-
-.inline-error {
-    color: #f05;
-    margin: 5px 0;
-    align-self: center;
-    justify-self: right;
-    grid-column: 1 / span 2;
 }
 
 @keyframes hueRotate {
     0%   { filter: hue-rotate(0deg);   }
     50%  { filter: hue-rotate(180deg); }
     100% { filter: hue-rotate(0deg);   }
+}
+
+main {
+    margin: 0 10px;
+    min-width: 30ch;
+}
+
+/* Margin desktop */
+@media only screen and (min-width: 800px) and (min-device-width: 800px) {
+    main {
+        margin: 0 30vw;
+    }
+}
+
+h1 {
+    font-family: Cloister;
+    font-size: 40pt;
+}
+
+button {
+    background-color: #222;
+    color: #ddd;
+
+    font-family: serif;
+    font-size: 1rem;
+
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: #ddd 0 2px 5px 0;
+
+    /* Center text inside the button */
+    text-align: center;
+    text-decoration: none;
+    vertical-align: middle;
+
+    /* Center horizontally */
+    display: block;
+    margin: 0 auto;
+
+    padding: 8px 15px;
+    max-width: fit-content;
+    cursor: pointer;
+}
+
+button:hover {
+    filter: brightness(150%);
+}
+
+button:focus {
+    color: #ff0;
+    border-color: #ff0;
+    box-shadow: #ff0 0 2px 5px 0;
+    outline: 0;
+}
+
+
+/**** Forms ****/
+form {
+    margin: 0 15%;
+    display: grid;
+    grid-template-columns: minmax(20ch, 30%) auto;
+    grid-gap: 5px;
+    align-items: center;
+}
+
+form button {
+    margin-top: 5px;
+    align-self: center;
+    justify-self: center;
+    grid-column: 1 / span 2;
+}
+
+input {
+    padding: 8px;
+    background: #ddd;
+    border: 3px solid #ddd;
+    border-radius: 5px;
+}
+
+input:focus {
+    box-shadow: 0 0 10px #dfd;
+    outline: 2px solid #ff0;
+}
+
+input:user-invalid {
+    background: #f05;
+    border: 3px solid #f05;
+}
+
+
+/**** Errors ****/
+.inline-error {
+    color: #f05;
+    margin: 5px 0;
+
+    align-self: center;
+    justify-self: right;
+    grid-column: 1 / span 2;
+}
+
+/**** Lists ****/
+.list-container {
+}
+
+.list-container .list-item {
+    display: flex;
+    gap: 5px;
+    align-items: baseline;
+
+    margin: 10px 0;
+    border-radius: 15px;
+    padding: 10px 20px;
+    background: #444;
+}
+
+.list-container .list-item:hover {
+    opacity: 0.7;
+}
+
+.list-container .list-item .list-title {
+    flex-grow: 5;
+}
+
+.list-container .list-item button {
+    flex-grow: 1;
 }
 

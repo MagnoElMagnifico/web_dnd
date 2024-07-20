@@ -106,18 +106,33 @@ class DatabaseHandle:
         self.connection.commit()
         return session_id
 
-    def get_campaigns(self, session_id: str) -> list[tuple[str]]:
+    def get_campaigns(self, session_id: str) -> list[str]:
         result = self.cursor.execute(
             """
-            select campaign_name from campaigns
-            join users on campaigns.dm = users.user_name
-            where session_id = ?
+            select campaign_name
+            from campaigns
+                 join users on campaigns.dm = users.user_name
+            where users.session_id = ?
             order by campaign_name desc;
             """,
             (session_id,),
         ).fetchall()
 
-        return result
+        return [e[0] for e in result]
+
+    def get_characters(self, session_id: str) -> list[str]:
+        result = self.cursor.execute(
+            """
+            select character_name
+            from character_owners
+                 join users on character_owners.user_name = users.user_name
+            where users.session_id = ?
+            order by character_name desc;
+            """,
+            (session_id,),
+        ).fetchall()
+
+        return [e[0] for e in result]
 
 
 class Database:

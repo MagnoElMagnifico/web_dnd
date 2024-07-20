@@ -150,14 +150,28 @@ class HttpServer:
         filepath = None
         if self.is_authenticated(request):
 
-            # TODO: Input here API implementation...
+            match url:
+                case "/api/campaigns":
+                    with self._db.get_handle() as db:
+                        return HttpResponse.from_json(
+                            HTTPStatus.OK,
+                            {"campaigns": db.get_campaigns(request.cookie("SID"))},
+                        )
 
-            try:
-                # Try to fetch that file from the private resources
-                filepath = filepath_from_url(url, self._working_dir / "private")
+                case "/api/characters":
+                    with self._db.get_handle() as db:
+                        return HttpResponse.from_json(
+                            HTTPStatus.OK,
+                            {"characters": db.get_characters(request.cookie("SID"))},
+                        )
 
-            except FileNotFoundError:
-                pass
+                case _:
+                    try:
+                        # Try to fetch that file from the private resources
+                        filepath = filepath_from_url(url, self._working_dir / "private")
+
+                    except FileNotFoundError:
+                        pass
 
         # If autentication failed or the file was not found, try in the public
         # resources.

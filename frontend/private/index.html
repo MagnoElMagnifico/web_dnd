@@ -1,5 +1,65 @@
 {{ template:base.html }}
 
 {{ block "main" }}
-    <h1>Did you know that vaping is bad?</h1>
+    <p>No hay ninguna partida activa</p>
+    <button>Crear partida</button>
+    <button>Unirse a la partida</button>
+
+    <h1>Campañas</h1>
+    <div id="campaign-list" class="list-container"></div>
+    <button>Nueva campaña</button>
+
+    <h1>Personajes</h1>
+    <div id="character-list" class="list-container"></div>
+    <button>Nuevo personaje</button>
+{{ /block }}
+
+{{ block "scripts" }}
+<script>
+async function addToPage(url, listId, type) {
+    try {
+        // Ask the server to send me the user campaigns
+        const response = await fetch(url, {
+            'method': 'GET',
+            'headers': {
+                'Accept': 'application/json',
+            },
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            console.error(result['error'] + ': ' + result['description']);
+            return;
+        }
+
+        // Add the received campaigns to the web page
+        const campaignList = document.getElementById(listId);
+        for (const name of result[type]) {
+            // TODO: Add icon
+
+            const title = document.createElement('span');
+            title.innerText = name;
+            title.classList.add('list-title');
+
+            const editButton = document.createElement('button');
+            editButton.innerText = 'Editar';
+            editButton.onclick = () => location.href = `/edit-${type}?name=${name}`;
+
+            const listElement = document.createElement('div');
+            listElement.classList.add('list-item');
+            listElement.appendChild(title);
+            listElement.appendChild(editButton);
+
+            campaignList.appendChild(listElement);
+        }
+
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+addToPage('/api/campaigns', 'campaign-list', 'campaigns');
+addToPage('/api/characters', 'character-list', 'characters');
+</script>
 {{ /block }}

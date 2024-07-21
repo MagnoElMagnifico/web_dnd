@@ -16,6 +16,9 @@ def filepath_from_url(url: str, base: Path) -> Path:
 
     # Get the relative filepath
     filepath = base / url
+    # If the file does not have any extension, add '.html'
+    if filepath.suffix == "":
+        filepath = filepath.with_suffix(".html")
     # Now get the absolute representation and resolve symlinks
     filepath = filepath.absolute().resolve()
 

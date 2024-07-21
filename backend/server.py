@@ -19,6 +19,7 @@ from templates import TemplateEngine, filepath_from_url
 
 class HttpServer:
     def __init__(self, config: dict) -> None:
+        """Sets up the server with the given configuration"""
         mimetypes.init()
 
         # These are read-only, no need for locks
@@ -50,6 +51,11 @@ class HttpServer:
         ).to_bytes()
 
     def serve_forever(self) -> NoReturn:
+        """
+        Server main function.
+        Receives connections from the client and schedule them in a thread.
+        """
+
         # Socket creation
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             # Allow reusing the same IP and port between executions
@@ -74,7 +80,7 @@ class HttpServer:
             )
 
             # Handle requests in parallel
-            # FIXME: Cannot close the server if there is still pending connections
+            # TODO: Cannot close the server if there is still pending connections
             with ThreadPoolExecutor() as thp:
                 while True:
                     connection_socket, address = server_socket.accept()
@@ -83,13 +89,15 @@ class HttpServer:
     def thread_handle_request(
         self, connection_socket: socket.socket, address: tuple[str, int]
     ) -> None:
+        """Main function of each server thread to handle a petition."""
+
         self._log.info(f"Accept {address[0]}:{address[1]}")
         with connection_socket:
 
             # Handle petitions until the connection is closed
             # TODO: Maybe handle this request and then quit, so the thread can
             # be used for more than one connection. This will solve the previous
-            # FIXME. But, how to handle the socket?
+            # TODO. But, how to handle the socket?
 
             while True:
                 try:
@@ -114,6 +122,8 @@ class HttpServer:
 
                     # TODO: Connection: close
                     # TODO: HttpFormatError -- 400 Bad Request
+                    # TODO: Database error
+                    # TODO: Check accept header to send JSON or HTML
 
                 except FileNotFoundError as e:
                     self._log.info(
@@ -131,6 +141,7 @@ class HttpServer:
                     connection_socket.sendall(self._server_error_response)
 
     def is_authenticated(self, request: HttpRequest) -> bool:
+        """:returns: `True` if the request is properly authenticated"""
         session_id = request.cookie("SID")
         if session_id is not None:
             with self._db.get_handle() as db:
@@ -139,7 +150,10 @@ class HttpServer:
         return False
 
     def do_GET(self, request: HttpRequest, address: tuple[str, int]) -> HttpResponse:
-        # TODO: Do not always send HTML. Should check for the 'accept' header
+        """Handles GET requests.
+        Mainly returns a file to the client, but also delegates the API to
+        `do_GET_API`.
+        """
 
         url = request.url.path
 
@@ -150,35 +164,24 @@ class HttpServer:
         filepath = None
         if self.is_authenticated(request):
 
-            match url:
-                case "/api/campaigns":
-                    with self._db.get_handle() as db:
-                        return HttpResponse.from_json(
-                            HTTPStatus.OK,
-                            {"campaigns": db.get_campaigns(request.cookie("SID"))},
-                        )
+            # Delegate the API to another method
+            api_response = self.do_GET_API(url, request, address)
+            if api_response is not None:
+                return api_response
 
-                case "/api/characters":
-                    with self._db.get_handle() as db:
-                        return HttpResponse.from_json(
-                            HTTPStatus.OK,
-                            {"characters": db.get_characters(request.cookie("SID"))},
-                        )
+            try:
+                # Try to fetch that file from the private resources
+                filepath = filepath_from_url(url, self._working_dir / "private")
 
-                case _:
-                    try:
-                        # Try to fetch that file from the private resources
-                        filepath = filepath_from_url(url, self._working_dir / "private")
-
-                    except FileNotFoundError:
-                        pass
+            except FileNotFoundError:
+                pass
 
         # If autentication failed or the file was not found, try in the public
         # resources.
         if filepath is None:
             filepath = filepath_from_url(url, self._working_dir)
 
-        # Return the response.
+        # Return the requested file.
         # Only try the templates if the file is HTML
         if filepath.suffix == ".html":
             response = HttpResponse.from_template_or_file(
@@ -186,10 +189,42 @@ class HttpServer:
             )
         else:
             response = HttpResponse.from_file(HTTPStatus.OK, filepath)
+
         self._log.info(f"{address[0]} -- GET {request.url.path} -- OK")
         return response
 
+    def do_GET_API(
+        self, url: str, request: HttpRequest, address: tuple[str, int]
+    ) -> HttpResponse | None:
+        """Handle GET API calls.
+        **Precondition**: the request must be authenticated before calling this
+        function.
+        """
+
+        match url:
+            case "/api/campaigns":
+                with self._db.get_handle() as db:
+                    return HttpResponse.from_json(
+                        HTTPStatus.OK,
+                        {"campaigns": db.get_campaigns(request.cookie("SID"))},
+                    )
+
+            case "/api/characters":
+                with self._db.get_handle() as db:
+                    return HttpResponse.from_json(
+                        HTTPStatus.OK,
+                        {"characters": db.get_characters(request.cookie("SID"))},
+                    )
+
+            case _:
+                return None
+
     def do_POST(self, request: HttpRequest, address: tuple[str, int]) -> HttpResponse:
+        """
+        Handle POST petitions (mainly API).
+        :raise FileNotFoundError: If the URL is invalid.
+        """
+
         match request.url.path:
             case "/api/signup":
                 try:
@@ -214,22 +249,22 @@ class HttpServer:
                             },
                         )
 
-                    # TODO: check username and password format
-                    # The following characters are not allowed:
-                    #: ; < = > ? _ ` ~
-                    # Also other characters that you would usually think they won`t work (something in the caliber of 'ඞ')
-                    if re.search(
-                        "[^\x20-\x39\x40-\x5E\x61-\x7DáéíóúÁÉÍÓÚ]",
-                        request_json["username"],
-                    ) or re.search(
-                        "[^\x20-\x39\x40-\x5E\x61-\x7DáéíóúÁÉÍÓÚ]",
-                        request_json["password"],
+                    # Check username and password format
+                    if (
+                        # Valid characters for username: A-Z a-z 0-9 and _
+                        re.search(r"\w{3,15}", request_json["username"]) is None
+                        # Valid characters for passwords: extended ascii but for
+                        # control characters
+                        or re.search(
+                            r"[\x20-\x7E\x80-\xFF]{12,}", request_json["password"]
+                        )
+                        is None
                     ):
                         return HttpResponse.from_json(
                             HTTPStatus.BAD_REQUEST,
                             {
-                                "error": "Malformed request",
-                                "description": "El nombre de usuario o contraseña contienen caracteres inválidos",
+                                "error": "Invalid data",
+                                "description": "El nombre de usuario caracteres inválidos",
                             },
                         )
 
@@ -289,8 +324,6 @@ class HttpServer:
                             "description": 'La petición debe tener los campos "username" y "password"',
                         },
                     )
-
-                # TODO: check username and password format
 
                 with self._db.get_handle() as db:
                     session_id = db.login(

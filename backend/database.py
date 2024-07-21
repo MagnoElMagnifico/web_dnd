@@ -155,3 +155,17 @@ class DatabaseHandle:
         ).fetchall()
 
         return result
+
+
+    def get_players(self, session_id):
+        result = self.cursor.execute(
+            '''
+            select character_name from characters_owners 
+            join users on character_owners.user_name = users.user_name
+            where session_id = ?
+            order by character_name desc;
+            ''',
+            (session_id,)
+        ).fetchall()
+
+        return result

@@ -158,7 +158,21 @@ class HttpServer:
                         'error': 'Unkown error',
                         'description': 'No se que carámbanos ha pasado'
                     })
-
+            case '/players':
+                print("do_GET PLAYERS")
+                try:
+                    decoded_url = unquote(request.url)
+                    parsed_url = urlparse(decoded_url)
+                    # FIXME: Leaving with no comments the next line raises an error
+                    if (# parsed_url.path == '/' and
+                            'cookie' in request and 'SID' in request['cookie']):
+                        with self._db.get_handle() as db:
+                            return HttpResponse.from_str(HTTPStatus.OK, json.dumps(db.get_players(request['cookie']['SID'])))
+                except sqlite3.Error:
+                    return HttpResponse.from_json(HTTPStatus.BAD_REQUEST, {
+                        'error': 'Unkown error',
+                        'description': 'No se que carámbanos ha pasado'
+                    })
             case other:
                 print("do:GET other")
                 # URL decode and parse

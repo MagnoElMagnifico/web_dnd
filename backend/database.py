@@ -169,3 +169,16 @@ class DatabaseHandle:
         ).fetchall()
 
         return result
+
+
+    def get_attacks(self, player):
+        result = self.cursor.execute(
+            '''
+            select attack_name from attacks
+            where character_name = ?
+            order by attack_name desc;
+            ''',
+            (player,)
+        ).fetchall()
+
+        return result

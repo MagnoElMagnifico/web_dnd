@@ -121,6 +121,20 @@ header .prideLogo{
     animation: labelColorChange 5s infinite;
 }
 
+table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 10px solid transparent; /* Adjust as needed */
+    border-image: url('../images/pintura.jpg') 30 stretch; /* Adjust the slice and scaling as needed */
+}
+
+th, td {
+    padding: 8px;
+    text-align: left;
+    border: 5px solid transparent; /* Adjust as needed */
+    border-image: url('../images/pintura.jpg') 30 stretch; /* Adjust the slice and scaling as needed */
+}
+
 
 @keyframes labelColorChange {
 

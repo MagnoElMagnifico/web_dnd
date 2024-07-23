@@ -124,17 +124,20 @@ header .prideLogo{
 table {
     width: 100%;
     border-collapse: collapse;
-    border: 10px solid transparent; /* Adjust as needed */
+    border: 10px solid; /* Adjust as needed */
     border-image: url('../images/pintura.jpg') 30 stretch; /* Adjust the slice and scaling as needed */
 }
 
 th, td {
     padding: 8px;
     text-align: left;
-    border: 5px solid transparent; /* Adjust as needed */
+    border: 5px solid; /* Adjust as needed */
     border-image: url('../images/pintura.jpg') 30 stretch; /* Adjust the slice and scaling as needed */
 }
 
+tr.selected {
+    background-color: #d3d3d3;
+}
 
 @keyframes labelColorChange {
 

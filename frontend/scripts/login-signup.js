@@ -41,7 +41,7 @@ async function login(inputUsername, inputPassword) {
 
         errorLabel.hidden = true;
 
-        const campaigns = await sendJsonGET('/campaigns');
+
 
 
         console.log("Hola???")
@@ -92,9 +92,7 @@ async function signup(inputUsername, inputPassword1, inputPassword2) {
         }
 
         errorLabel.hidden = true;
-        const campaingsList = await sendJson('/api/campaigns',{
 
-        })
         // On success, the server must set the session cookie, so we reload the
         // page to load the user's content.
 
